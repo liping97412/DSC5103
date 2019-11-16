@@ -1,0 +1,312 @@
+---
+title: "DSC5103 Test 2"
+subtitle: 3 parts, 10 questions, 30 points in total
+date: "Nov 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, warning=FALSE, echo=FALSE, cache=FALSE, message=FALSE}
+options(width = 100)  # set output width
+```
+
+## NOTE:
+This is an *individual* test. You can refer to whatever sources of information or materials, online or offline, but do not communicate with any other people. You can work on this file directly and fill in your answers/code below. Please submit ONLY the HTML file (name your file like e0012345.html if your NUS ID is e0012345) onto *IVLE/Files/Student Submission/Test2* folder. 
+
+*There is no official time limit for this test. However, penalty will be given to late submission and is proportional to the time taken. The first 120 minutes will be penalty free, and after that, **one point** will be deducted for every extra **5-minute** chunk of time (e.g., if you take a total of 128 minutes, 2 points will be deducted.). Submission time is based on the **last** file you upload to the IVLE submission folder.*
+
+Also, fill your info below. (**This is critical as your NUS user id will be used in determining your random sample of the data!**)
+```{r}
+student.name <- "LI LIPING"  # put your name here
+student.id <- 0320278  # put only the numeric digits of your NUS user id here
+set.seed(student.id)
+```
+
+
+
+## Data Overview
+We are going to analyze some sales data from an anonymous cosmetics product retailer. The data has been cleaned and prepared in an RData format. You can load the file by doing the following. 
+```{r}
+load("sales.rdata")  # load the data (make sure the .rdata file is in your working directory!)
+```
+After successfully loading the file, you should see two data frames **data.train** and **data.test** together with some other auxilliary objects. 
+```{r}
+ls(all.names=T)  # list all the objects in the data file
+```
+
+The data is the sales record for each product, organized by date, over the period from 2015-09-01 to 2015-10-31. The record is aggregated over all the stores. A detailed description of all variables in the dataset can be seen in the list below.
+
+- "date": date of the record, in YYYY-MM-DD format;
+- "month": calender month extracted from date.key (9, 10);
+- "weekend": whether the day is in weekend (Y/N);
+- "holiday": whether the day is a public holiday (Y/N);
+- "prod_id": product ID;
+- "prod_function": product category by its function (e.g., cleanser, moisturzier);
+- "prod_regime": product category by its "regime" or "theme" (e.g., Tea, Aloe), which is orthogonal to the function categorization;
+- "prod_listprice": official list price of the product;
+- "discount": discount offered for the product, averaged across all stores (0 to 100, e.g., 20 means 20% discount);
+- "stockout": average stock availability of the product across all stores at the beginning of the day (between 0 to 1, with 1 means no stock for any products at any store); 
+- "sales": total sales of the product on that day, aggregated over all the stores.
+
+The dataset has already been split into two parts, September data for training and October data for test.
+
+```{r}
+summary(data.train)
+summary(data.test)
+```
+
+
+### Part 1. Modeling Choices  (9 points)
+
+#### Q1a. Suppose your task is to predict the future sales of the **existing products** (that is, those *prod_id* that already exist in *data.train*), write down the supervised learning model (in the form of a formula like y ~ x1 + x2) with all reasonable predictors.  (3 points)
+
+(Hint: you need to decide which of the predictors can be used in your model. Please limit your consideration in the set of given predictors, no need to engineer new features or introduce interactions or nonlinear transformations.)
+
+
+-----
+
+***ANSWER of Q1a:***
+```{R}
+formula_1a <- as.formula(sales~weekend+holiday+prod_function+prod_regime+prod_listprice+discount+stockout)
+```
+-----
+
+
+#### Q1b. Now suppose your task is to predict the future sales of **new products** that (1) are with new *prod_id*(2) still belong to one of the existing *prod_function* and also *prod_regmie*, write down the supervised learning model with all reasonable predictors.  (3 points)
+
+-----
+
+***ANSWER of Q1b:***
+```{r}
+
+formula_1b <- as.formula(sales~weekend+holiday+prod_function+prod_regime+prod_listprice+discount)
+
+```
+-----
+
+
+
+#### Q1c. Next suppose your task is to predict the future sales of **products in a new regime** that (1) are with new *prod_id*; and (2) still belong to one of the existing *prod_function* but do not belong to any of the existing *prod_regmie*, write down the supervised learning model with all reasonable predictors.  (3 points)
+
+
+-----
+
+***ANSWER of Q1b:***
+```{r}
+
+formula_1c <- as.formula(sales~weekend+holiday+prod_function+prod_listprice+discount)
+
+```
+-----
+
+
+
+
+
+### Part 2. Basic Models for Prediction  (12 points)
+
+In this part, we build several basic models for predicting the *sales*. 
+
+One thing to note is that the Y variable, *sales*, is nonnegative. This demands a logarithm transformation here, but simply using *log(sales)* would not work because the sales can take value zero. A commonly used trick is to use *log(1 + sales)* instead. Below we add this new *log_sales* variable to the data. In the following we will only work with this new Y.
+
+```{r}
+data.train$log_sales <- log(1 + data.train$sales)
+data.test$log_sales <- log(1 + data.test$sales)
+```
+
+Also, for the sake of the test, let's fix our choice of predictors to be the following:
+
+$$\text{log_sales ~ weekend + holiday + prod_function + prod_regime + prod_listprice + discount + stockout}.$$
+
+
+
+#### Q2a. Fit a linear regression model of the above-specified model, and use it to generate predictions on both the training and the test datasets.  (3 points)
+
+-----
+
+***ANSWER of Q2a:***
+
+```{r}
+#define a formula for following questions
+formula <- as.formula(log_sales ~ weekend + holiday + prod_function + prod_regime + prod_listprice + discount + stockout)
+#Fit a linear regression model
+model_lm <- lm(formula,data=data.train)
+#generate predictions on both the training and the test datasets
+pred_lm_train <- predict(model_lm,data.train)
+pred_lm_test <- predict(model_lm,data.test)
+```
+
+-----
+
+
+
+
+#### Q2b. Fit a LASSO model of the above-specified model, and use it to generate predictions on both the training and the test datasets.  (3 points)
+
+
+-----
+
+***ANSWER of Q2b:***
+```{r}
+library("glmnetUtils")
+### The Lasso
+# glmnet with alpha=1 means LASSO
+model_lasso <- glmnet(formula,data.train,alpha=1, use.model.frame=TRUE)
+# CV for optimal lambda
+lasso.cv <- cv.glmnet(formula,data.train,alpha=1, use.model.frame=TRUE)
+# prediciton on training and test dataset using optimal lambda
+pred_lasso_train <- predict(lasso.cv, s=lasso.cv$lambda.min, newdata=data.train, exact=TRUE)
+pred_lasso_test <- predict(lasso.cv, s=lasso.cv$lambda.min, newdata=data.test, exact=TRUE)
+```
+
+-----
+
+
+
+
+#### Q2c. Fit a Random Forest model of the above-specified model, and use it to generate predictions on both the training and the test datasets.  (3 points)
+
+-----
+
+***ANSWER of Q2c:***
+
+```{r}
+library("randomForest")
+#  Fit a Random Forest model
+model_rf <- randomForest(formula, data.train)
+#enerate predictions on both the training and the test datasets
+pred_rf_train <- predict(model_rf, newdata=data.train)
+pred_rf_test <- predict(model_rf, newdata=data.test)
+
+```
+
+
+
+-----
+
+#### Q2d. Calculate the test RMSE of the *log_sales* predictions by the three models above.  (3 points)
+
+
+-----
+
+***ANSWER of Q2d:***
+```{r}
+library(Metrics)
+RMSE_lm <- rmse(data.test$log_sales,pred_lm_test)
+cat("RMSE_lm:",RMSE_lm,"\n")
+RMSE_lasso <- rmse(data.test$log_sales,pred_lasso_test)
+cat("RMSE_lasso:",RMSE_lasso,"\n")
+RMSE_rf <- rmse(data.test$log_sales,pred_rf_test)
+cat("RMSE_rf:",RMSE_rf,"\n")
+
+```
+
+-----
+
+### Part 3. Refining the Basic Models  (9 points)
+
+In this part we try to develop further improvement over the basic models trained in Part 2.
+
+
+We can expect the linear regression model to overfit the data. We have already tried regularization by LASSO as one of the solutions to this potential problem, but the benefit in terms of RMSE is not much. An alternative solution is to apply Bagging (Bootstrap Aggregating).
+
+#### Q3a. Bagging on linear regression: (1) generate 100 bootstrap samples, (2) fit the linear regression model for each sample and generate predictions on the test data, and (3) aggregate the 100 predictions on the test dataset and measure the test RMSE.   (3 points)
+
+-----
+
+***ANSWER of Q3a:***
+
+```{r}
+
+#create a empty data frame to collect the predictions of test data
+pred_test <- setNames(as.data.frame(matrix(nrow = nrow(data.test), ncol = 100)),c(1:100))
+
+#a loop to run the bootstrap models
+for(i in 1:100){
+  n_samples <- nrow(data.train)
+  sample_row_ids <- sample(1:n_samples,n_samples, replace=TRUE)
+  new.data.train <- data.train[sample_row_ids, ]
+  lm <- lm(formula, new.data.train)
+  pred_test[,i] <- predict(lm,data.test)
+}
+pred_test_bootstrap <- rowMeans(pred_test)
+RMSE_bootstrap <- rmse(data.test$log_sales,pred_test_bootstrap)
+cat("RMSE_bootstrap:",RMSE_bootstrap,"\n")
+
+```
+
+-----
+
+Our next solution is related to the idea of boosting. Based on a trained model and its prediction, we can calculate its residuals and potentially apply another model to fit the residuals. Let's try this with the trained Random Forest model.
+
+#### Q3b. Boosting on Random Forest: (1) calculate the residuals of the trained RF model on the training data, (2) fit a LASSO model of the residuals using the same set of predictors, and (3) generate predictions on the test dataset using the two models together and measure the test RMSE.   (3 points)
+-----
+
+***ANSWER of Q3b:***
+```{r}
+#calculate the residuals of the trained RF model on the training data
+data.train$residuals <- data.train$log_sales-pred_rf_train
+
+# fit a lasso model on residuals
+model_lasso_residuals <- glmnet(residuals ~ weekend + holiday + prod_function + prod_regime + prod_listprice + discount + stockout,data.train,alpha=1, use.model.frame=TRUE)
+
+# CV for optimal lambda
+lasso.cv.residuals <- cv.glmnet(residuals ~ weekend + holiday + prod_function + prod_regime + prod_listprice + discount + stockout,data.train,alpha=1, use.model.frame=TRUE)
+
+# prediciton using optimal lambda on test data
+pred_residuals <- predict(lasso.cv.residuals, s=lasso.cv.residuals$lambda.min, newdata=data.test, exact=TRUE)
+
+#using the two models together
+pred_test_3b <- pred_residuals+pred_rf_test
+RMSE_2models <- rmse(data.test$log_sales,pred_test_3b)
+cat("RMSE_2models:",RMSE_2models,"\n")
+
+```
+
+
+-----
+
+
+Our final attemp is to apply the ensemble idea. Since we already have predictions from the three basic models (linear regression, LASSO, and random forest), we can try to combine the predictions into one using another linear model.
+
+#### Q3c. Ensemble on the basic models: (1) fit a LASSO model to combine the three predicitons for predicting log-sales, and (2) use the ensemble model to generate predictions on the test dataset and measure the test RMSE.   (3 points)
+
+
+-----
+
+***ANSWER of Q3c:***
+
+```{r}
+#create two dataframe for stacking
+train_stack <- setNames(as.data.frame(matrix(nrow = nrow(data.train), ncol = 4)),c("log_sales","lm","lasso","rf"))
+train_stack$log_sales <- data.train$log_sales
+train_stack$lm <- pred_lm_train
+train_stack$lasso <- pred_lasso_train
+train_stack$rf <- pred_rf_train
+
+test_stack <- setNames(as.data.frame(matrix(nrow = nrow(data.test), ncol = 4)),c("log_sales","lm","lasso","rf"))
+test_stack$log_sales <- data.test$log_sales
+test_stack$lm <- pred_lm_test
+test_stack$lasso <- pred_lasso_test
+test_stack$rf <- pred_rf_test
+
+
+# glmnet with alpha=1 means LASSO
+model_lasso_3c <- glmnet(log_sales~lm+lasso+rf,train_stack,alpha=1, use.model.frame=TRUE)
+# CV for optimal lambda
+lasso.cv.3c <- cv.glmnet(log_sales~lm+lasso+rf,train_stack,alpha=1,use.model.frame=TRUE)
+# prediciton using optimal lambda
+pred_test_3c <- predict(model_lasso_3c, s=lasso.cv.3c$lambda.min, newdata=test_stack, exact=TRUE)
+RMSE_stack <- rmse(data.test$log_sales,pred_test_3c)
+cat("RMSE_stack:",RMSE_stack,"\n")
+```
+
+-----
+
+
+***[THE END]***

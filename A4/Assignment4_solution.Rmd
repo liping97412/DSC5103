@@ -1,0 +1,136 @@
+---
+title: "DSC5103 Assignment 4"
+subtitle: 'Bootstrapping Ridge Regression and LASSO --- Solutions and Remarks'
+author: "Tong Wang"
+date: "Oct 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+
+### Introduction
+In this assignment, we will apply the bootstrap on the regularization models (Ridge Regression and LASSO) we have obtained in Assignment 3 so as to gain better understanding about the variability of the coefficients in the final model.
+
+### Data Preparation
+First, let us get the data. We will use the **Heart** data from the textbook, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+N.train <- round(N/2)
+set.seed(456)
+train.index <- sample(1:N, N.train)
+data.train <- heart[train.index, ]
+data.test <- heart[- train.index,]
+```
+
+
+### Questions and Answers
+
+#### 1. [Single Ridge Regression & LASSO] Fit a Ridge Regression model on the training data, use the optimal $\lambda$ we obtained last time ($\lambda = 0.0402$), and print the coefficients of the optimal model. Fit a LASSO model on the training data, use the optimal $\lambda$ we obtained last time ($\lambda = 0.0186$), and print the coefficients of the the optimal model.   (1 Mark)
+
+Answer: 
+
+```{r message=FALSE, warning=FALSE}
+library("glmnetUtils")
+
+ridge.lam <- 0.0402
+ridge.mod <- glmnet(AHD ~ ., data=data.train, family="binomial", alpha=0, use.model.frame=TRUE)
+ridge.coef <- coef(ridge.mod, s=ridge.lam)
+ridge.coef
+
+lasso.lam <- 0.0186
+lasso.mod <- glmnet(AHD ~ ., data=data.train, family="binomial", alpha=1, use.model.frame=TRUE)
+lasso.coef <- coef(lasso.mod, s=lasso.lam)
+lasso.coef
+```
+
+
+
+
+#### 2. [Bootstrap] Generate $B=500$ bootstrap samples from the training data. For each bootstrap sample, fit the Ridge Regression and LASSO models using there respective optimal lambda (as specified above), and keep a record of the models' coefficients.   (2 Marks)
+
+Answer:
+
+```{r}
+n <- nrow(data.train)
+B = 500
+
+ridge.coefs <- matrix(NA, nrow=B, ncol=length(ridge.coef))
+lasso.coefs <- matrix(NA, nrow=B, ncol=length(lasso.coef))
+
+set.seed(45678)
+for (b in 1:B) {
+    bs.index <- sample(n, n, replace=TRUE)
+    
+    # ridge
+    ridge.mod <- glmnet(AHD ~ ., data=data.train, subset=bs.index, family="binomial", alpha=0, use.model.frame=TRUE)
+    ridge.coefs[b, ] <- as.vector(coef(ridge.mod, s=ridge.lam))
+    
+    # lasso
+    lasso.mod <- glmnet(AHD ~ ., data=data.train, subset=bs.index, family="binomial", alpha=1, use.model.frame=TRUE)
+    lasso.coefs[b, ] <- as.vector(coef(lasso.mod, s=lasso.lam))
+}
+
+```
+
+
+#### 3. Plot the distributions (across the 500 bootstrap runs) of the intercept and the coefficients with respect to the following predictors: Age, MaxHR, and ThalNormal. How can we use these distributions?   (2 Marks)
+
+Answer:
+
+```{r message=F}
+library("ggplot2")
+# intercept
+ggplot() + geom_density(aes(x=ridge.coefs[, 1]), color="red")  + geom_density(aes(x=lasso.coefs[, 1]), color="blue") + 
+geom_vline(xintercept=ridge.coef[1], color="red", linetype="dashed") + geom_vline(xintercept=lasso.coef[1], color="blue", linetype="dashed") + theme_bw()
+
+# Age
+ggplot() + geom_histogram(aes(x=ridge.coefs[, 2]), fill="red", alpha=0.5)  + geom_histogram(aes(x=lasso.coefs[, 2]), fill="blue", alpha=0.5) + geom_vline(xintercept=ridge.coef[2], color="red", linetype="dashed") + geom_vline(xintercept=lasso.coef[2], color="blue", linetype="dashed") + theme_bw()
+
+
+# MaxHR
+ggplot() + geom_histogram(aes(x=ridge.coefs[, 12]), fill="red", alpha=0.5)  + geom_histogram(aes(x=lasso.coefs[, 12]), fill="blue", alpha=0.5) + geom_vline(xintercept=ridge.coef[12], color="red", linetype="dashed") + geom_vline(xintercept=lasso.coef[12], color="blue", linetype="dashed") + theme_bw()
+
+
+# ThalNormal
+ggplot() + geom_histogram(aes(x=ridge.coefs[, 20]), fill="red", alpha=0.5)  + geom_histogram(aes(x=lasso.coefs[, 20]), fill="blue", alpha=0.5) + geom_vline(xintercept=ridge.coef[20], color="red", linetype="dashed") + geom_vline(xintercept=lasso.coef[20], color="blue", linetype="dashed") + theme_bw()
+
+
+```
+
+Comparing the coefficients obtained by Ridge Regression and LASSO, we can see that LASSO tends to have more zero valued coefficients.
+
+More importantly, by doing bootstrap and examining the distribbutions of these coefficients, we are able to get a good idea about the variability of these coefficients. If we like, we can further provide confidence intervals. This, in some sense, will provide a good answer to those traditional guys who want to see the p-values of the coefficients. 
+
+
+**REMARK**: here when doing bootstrap, we have fixed the lambdas and used the same number across the 500 bootstrap samples. Another possibility is to choose the optimal lambda for each bootstrap sample, which will be more consuming for sure. Think about what is the different implication there.

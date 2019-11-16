@@ -1,0 +1,267 @@
+---
+title: "DSC5103 Assignment 2 --- Solutions and Remarks"
+subtitle: 'Logistic Regression'
+author: "Tong Wang"
+date: "Sep 2017"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+  pdf_document:
+    highlight: zenburn
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+
+## Part I: Gender Discrimination in UC Berkeley Admissions
+### Introduction
+The *UCBAdmissions* dataset in R has aggregate data on applicants to graduate school at Berkeley for the six largest departments in 1973 classified by admission and sex. At issue is whether the data show evidence of sex bias in admission practices. There were 2691 male applicants, of whom 1198 (44.5%) were admitted, compared with 1835 female applicants of whom 557 (30.4%) were admitted. This gives a sample odds ratio of 1.83, indicating that males were almost twice as likely to be admitted.
+
+Let's first convert the dataset into a dataframe.
+```{r}
+UCBAdmissions.df <- as.data.frame(UCBAdmissions)
+head(UCBAdmissions.df)
+```
+
+We are going to use Logistic Regression to test the accusation.
+
+### Questions and Answers
+
+#### 1. Convert the dataset into proper shape with two separte columns showing the number of admitted and rejected applicants for each *Gender* and *Dept* combinations. (Hint: check "tidyr" package.) (1 Mark)
+
+Answer: 
+
+```{r message=FALSE, warning=FALSE}
+library("dplyr")
+library("tidyr")
+data <- spread(UCBAdmissions.df, Admit, Freq)
+data
+```
+
+#### 2. Run Logistic Regression of *(admitted, rejected)* on predictor *Gender*. What is the probablity of a female being admitted? Briefly comment on whether there is sex bias based on the model output. (1 Mark)
+
+Answer: 
+
+```{r}
+glm1 <- glm(cbind(Admitted, Rejected) ~ Gender, data, family = binomial())
+summary(glm1)
+```
+
+The probability of admission for a female is `r predict(glm1, newdata=data.frame(Gender="Female"), type="response")`, whereas that for a male is `r predict(glm1, newdata=data.frame(Gender="Male"), type="response")`. These two numbers are simply the proportion of Male and Female in the dataset. The data says that there is less female admitted overall.
+
+#### 3.  Run Logistic Regression of *(admitted, rejected)* on predictor *Gender* and *Dept*. Briefly comment on whether there is sex bias based on the model output and the difference from the conclusion made by the previous model. (1 Mark)
+
+Answer: 
+
+```{r}
+glm2 <- glm(cbind(Admitted, Rejected) ~ Gender + Dept, data, family = binomial())
+summary(glm2)
+```
+
+After controling for *Dept*, the coefficient for dummy variable *GenderFemale* is now positive (`r coef(glm2)["GenderFemale"]`) but not significant, suggesting that there is no statistical difference between male and female.
+
+**REMARK**: The discrepency between the two models is called Simpson's Paradox. It is a paradox in which a correlation present in different group is reversed when the groups are combined. In the UCBAdmissions example, female tended to apply to competitive departments with low rates of admission even among qualified applicants, whereas male tended to apply to less competitive departments with high rates of admission among the qualified applicants. That makes the overall difference in admission rate.
+
+
+
+#### 4.  Introduce interaction term between *Gender* and *Dept* into the previous model. Briefly interpret the model output. (1 Mark)
+
+Answer: 
+
+```{r}
+glm3 <- glm(cbind(Admitted, Rejected) ~ Gender * Dept, data, family = binomial())
+summary(glm3)
+```
+
+This is a saturated model with 0 degree of freedom. Let's see the model's fitted probabilities.
+```{r}
+data$prob <- predict(glm3, type="response")
+data %>% select(Dept, Gender, prob) %>% spread(Gender, prob)
+```
+We can see actually females are favored by Dept A, B, D, and F.
+
+
+## Part II: . Logistic Regression on the mixture.example dataset
+### Introduction
+We have done k-Nearest Neighbour classification on the *mixture.example* dataset of the *ElemStatLearn* package. Here we want to do the same classification using Logistic Regression and compare their performance on the test dataset.
+
+To save your time, below is copied from the previous *knn_demo.R* file with some minor modifications. You can simply continue from there.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library("ElemStatLearn")  # run install.packages("ElemStatLearn") if you haven't
+
+# copy important ones out
+x <- mixture.example$x
+y <- mixture.example$y
+prob <- mixture.example$prob
+xnew <- mixture.example$xnew
+px1 <- mixture.example$px1
+px2 <- mixture.example$px2
+
+# make dataframe for the training data (with x1, x2, and y)
+df.training <- data.frame(x1=x[ , 1], x2=x[ , 2], y=y)
+df.training$y <- as.factor(df.training$y)
+
+# make dataframe for the "test" data (with xnew1, xnew2, and true prob, but not y!!)
+df.grid <- data.frame(x1=xnew[ , 1], x2=xnew[ , 2])
+df.grid$prob <- prob
+
+
+# plot X and Y
+library("ggplot2")
+p0 <- ggplot() + geom_point(data=df.training, aes(x=x1, y=x2, color=y), size=4) + scale_color_manual(values=c("green", "red")) + theme_bw()
+
+# add the true boundary into the plot
+p.true <- p0 + stat_contour(data=df.grid, aes(x=x1, y=x2, z=prob), breaks=c(0.5))
+p.true
+```
+
+The above plot is the true boundary from the dataset.
+
+### Questions and Answers
+#### 1. Run Logistic Regression of *y* on *x1* and *x2* using the *df.training* dataset. (1 Mark)
+
+Answer: 
+
+```{r}
+lr1 <- glm(y ~ x1 + x2, data=df.training, family=binomial())
+summary(lr1)
+```
+
+
+#### 2. Predict the probability of *y* using *df.grid* as the newdata. Plot the decision boundary of model just like we did for the true decision boundary above. Interpret the boundary verbally. (1 Mark)
+
+Answer: 
+
+```{r}
+df.grid$prob.lr1 <- predict(lr1, newdata=df.grid, type="response")
+p.lr1 <- p0 + stat_contour(data=df.grid, aes(x=x1, y=x2, z=prob.lr1), breaks=c(0.5)) 
+p.lr1
+```
+
+**REMARK**: The boundary for Logistic Regression is linear! This is because for any cutoff for probability (we use $\bar{p}=0.5$ here) , there is a corresponding cutoff  $\bar{\eta} = \log \left( \frac{\bar{p}}{1 - \bar{p}} \right)$ for $\eta$. Recall that $\eta = \beta_0 + \beta_1 x_1 + \beta_2 x_2$. That means the decision boundary is simply those points satisfying $\hat{\beta}_0 + \hat{\beta}_1 x_1 + \hat{\beta}_2 x_2 = \bar{\eta}$, which is a line in the ($x_1, x_2$) plane.
+
+#### 3. Fit the Logistic Regression model with up to 6th-order polynomial of *x1* and *x2*. Repeat the prediction on *df.grid* and plot the decision boundary. (1 Mark)
+
+Answer: 
+
+```{r}
+## fit the Logistic Regression model with 6th-order polynomial
+lr6 <- glm(y ~ poly(x1, 6, raw=TRUE) + poly(x2, 6, raw=TRUE), data=df.training, family=binomial())
+summary(lr6)
+df.grid$prob.lr6 <- predict(lr6, newdata=df.grid, type="response")
+p.lr6 <- p0 + stat_contour(data=df.grid, aes(x=x1, y=x2, z=prob.lr6), breaks=c(0.5)) 
+p.lr6
+```
+
+**REMARK**: One way to introduce nonlinear boundary is to introduce nonlinear (polynomial or logarithm) terms.
+
+Next, let's generate a test dataset and compare the performance of the two logistic regression models with kNN. Again, we can copy the code from *mixture_knn.R*.
+```{r results='hide', message=FALSE, warning=FALSE}
+library("mvtnorm")
+set.seed(123)
+centers <- c(sample(1:10, 5000, replace=TRUE), 
+             sample(11:20, 5000, replace=TRUE))
+means <- mixture.example$means
+means <- means[centers, ]
+x.test <- rmvnorm(10000, c(0, 0), 0.2 * diag(2))
+x.test <- x.test + means
+y.test <- c(rep(0, 5000), rep(1, 5000))
+df.test <- data.frame(x1=x.test[, 1], x2=x.test[, 2], y=y.test)
+
+# best possible misclassification rate
+bayes.error <- sum(mixture.example$marginal * (prob * I(prob < 0.5) + (1-prob) * I(prob >= 0.5)))
+```
+Here *x.test* and *y.test* are the separate test data for the *knn()* function, whereas *df.test* is for *glm()*. They are the same data in different format. The *bayes.error* gives the best possible misclassification rate when the true model is known. We will use it as the limit.
+
+The following code obtains probability prediction of kNN for k=1, 7, and 100 and save the probability predictions as three columns in the *df.test* dataframe.
+```{r}
+## predict with various knn models
+library("FNN")
+ks <- c(1, 7, 100)
+for (i in seq(along=ks)) {
+    mod.test  <- knn(x, x.test, y, k=ks[i], prob=TRUE)
+    prob <- attr(mod.test, "prob")
+    prob <- ifelse(mod.test == "1", prob, 1 - prob)
+    df.test[, paste0("prob.knn", ks[i])] <- prob
+}
+head(df.test)
+```
+
+#### 4. Using *df.test* as new data, obtain the probability prediction of the two Logistic Regression models built earlier, and save them as two columns in *df.test*, too. (1 Mark)
+
+Answer: 
+
+```{r}
+df.test$prob.lr1 <- predict(lr1, newdata=df.test, type="response")
+df.test$prob.lr6 <- predict(lr6, newdata=df.test, type="response")
+head(df.test)
+```
+
+#### 5. Plot the misclassification rate of the 5 models against probability cutoff in one plot, and also plot *bayes.error* as the benchmark. (1 Mark)
+
+Answer: 
+
+Construct ROCR prediction objects first.
+```{r}
+library("ROCR")
+lr1.pred <- prediction(df.test$prob.lr1, df.test$y)
+lr6.pred <- prediction(df.test$prob.lr6, df.test$y)
+knn1.pred <- prediction(df.test$prob.knn1, df.test$y)
+knn7.pred <- prediction(df.test$prob.knn7, df.test$y)
+knn100.pred <- prediction(df.test$prob.knn100, df.test$y)
+```
+Then plot misclassification rate.
+```{r fig.width=6, fig.height=6}
+lr1.err <- performance(lr1.pred, measure = "err")
+lr6.err <- performance(lr6.pred, measure = "err")
+knn1.err <- performance(knn1.pred, measure = "err")
+knn7.err <- performance(knn7.pred, measure = "err")
+knn100.err <- performance(knn100.pred, measure = "err")
+
+plot(lr1.err, lwd=2, ylim=c(0.2, 0.5))
+plot(lr6.err, lwd=2, add=TRUE, col="purple")
+plot(knn1.err, add=TRUE, col="red")
+plot(knn7.err, add=TRUE, col="green")
+plot(knn100.err, add=TRUE, col="blue")
+abline(h=bayes.error, lty=2)
+```
+
+
+#### 6. Plot the ROC curve of all the 5 models in one plot, and compare the models. (1 Mark)
+
+Answer: 
+
+```{r fig.width=6, fig.height=6}
+lr1.ROC <- performance(lr1.pred, measure = "tpr", x.measure = "fpr")
+lr6.ROC <- performance(lr6.pred, measure = "tpr", x.measure = "fpr")
+knn1.ROC <- performance(knn1.pred, measure = "tpr", x.measure = "fpr")
+knn7.ROC <- performance(knn7.pred, measure = "tpr", x.measure = "fpr")
+knn100.ROC <- performance(knn100.pred, measure = "tpr", x.measure = "fpr")
+
+plot(lr1.ROC, lwd=2)
+plot(lr6.ROC, lwd=2, add=TRUE, col="purple")
+plot(knn1.ROC, add=TRUE, col="red")
+plot(knn7.ROC, add=TRUE, col="green")
+plot(knn100.ROC, add=TRUE, col="blue")
+abline(a=0, b=1, lty=2) # diagonal line
+```
+
+Let's also check the AUC.
+```{r}
+as.numeric(performance(lr1.pred, "auc")@y.values)
+as.numeric(performance(lr6.pred, "auc")@y.values)
+as.numeric(performance(knn1.pred, "auc")@y.values)
+as.numeric(performance(knn7.pred, "auc")@y.values)
+as.numeric(performance(knn100.pred, "auc")@y.values)
+```
+
+It seems the best kNN model (k=7) beats our Logistic Regression models. It is expected because of high nonlinearity in the data.
+
+**REMARK**: All that we have done is comparing multiple models (i.e., "model selection") based on the test dataset. Most of the time in practice, we will NOT have the luxury of using a large dataset for testing. Next time we will discuss how to do the same task when not having access to such a test dataset.

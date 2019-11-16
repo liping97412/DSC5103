@@ -1,0 +1,374 @@
+---
+title: "DSC5103 Test 2 solutions"
+subtitle: 5 questions, 20 points in total
+date: "Nov 2015"
+output:
+  html_document:
+    highlight: tango
+    theme: spacelab
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 120)  # set output width
+```
+
+
+We will work on a breast cancer dataset obtained from the University of Wisconsin Hospitals, Madison from Dr. William H. Wolberg. More details about the dataset can be found [here](http://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.names).
+
+The complete dataset consists of 699 records (rows). Each record corresponds to a patient. Here is a brief description of the columns.
+
+No     | Column Name                  | Value
+------ | ---------------------------- | ------
+1      | ID                           | Patient id
+2      | Clump Thickness              | 1 - 10
+3      | Uniformity of Cell Size      | 1 - 10
+4      | Uniformity of Cell Shape     | 1 - 10
+5      | Marginal Adhesion            | 1 - 10
+6      | Single Epithelial Cell Size  | 1 - 10
+7      | Bare Nuclei                  | 1 - 10
+8      | Bland Chromatin              | 1 - 10
+9      | Normal Nucleoli              | 1 - 10
+10     | Mitoses                      | 1 - 10
+11     | Class                        | 0 for benign, 1 for malignant
+
+We would like to train models to predict the binary breast cancer condition (Column 11) based on attributes in Column 2 through 10. All the attributes are ratings on a discrete scale from 1 to 10 by doctors. 
+
+The data is clean and prepared in an RData format. You can load the file by doing the following. After successfully loading the file, you should see a data frame called **x.train** with 367 rows and 10 columns (Column 1 -- 10 in the table above). This will be the potential predictors in the training data. The response **y.train** denotes the class (Column 11) and is in a separated vector.
+```{r}
+load("bcw_train.rdata")  # load the data (make sure the .RData file is in your working directory!)
+dim(x.train)  # show data dimensions
+summary(x.train)  # summary
+table(y.train)  # number of 0's and 1's in training data
+```
+
+Also there is a validation dataset that is reserved later for Q4 and Q5 for calibrating predictions, named **x.valid** and **y.valid**. It consists of 166 rows.
+```{r}
+summary(x.valid) 
+table(y.valid)
+```
+
+At the end, there is a test dataset of size 166 with only **x.test** but not **y.test**. Your final prediction should be made based on information given in **x.test**, and your prediction performance will be evaluated against the **y.test** that is not given here.
+```{r}
+summary(x.test) 
+```
+
+
+
+### Q1. Decision Tree Modeling. (3 points)
+#### a. Build a classification tree on the training data, do cross-validation and pruning if necessary, and print the final tree obtained.
+
+-----
+
+***ANSWER of Q1a:***
+
+```{r}
+library("tree")
+
+# grow a tree
+bcw.tree <- tree(as.factor(y.train) ~ . - ID, data=x.train)
+bcw.tree
+summary(bcw.tree)
+
+# pruning by cross-validation
+set.seed(123)
+bcw.tree.cv <- cv.tree(bcw.tree, method="misclass")
+bcw.tree.cv
+
+# optimal tree size obtained by CV
+optimal <- which.min(bcw.tree.cv$dev)
+optimal.size <- bcw.tree.cv$size[optimal]
+
+# pruned tree
+bcw.tree.pruned <- prune.tree(bcw.tree, best=optimal.size, method="misclass")
+bcw.tree.pruned
+summary(bcw.tree.pruned)
+plot(bcw.tree.pruned)
+text(bcw.tree.pruned)
+```
+
+-----
+
+
+#### b. Briefly describe how your decision tree classifies the breast cancer cases.
+
+-----
+
+***ANSWER of Q1b:***
+
+The tree predicts breast cancer if one of the two conditions is satisfied: (1) Uniformity_of_Cell_Shape > 2.5 and Uniformity_of_Cell_Size > 1.5; (2) Uniformity_of_Cell_Shape < 2.5 and Clump_thickness > 5.5.
+
+-----
+
+
+
+### Q2. Random Forest Modeling. (3 points)
+#### a. Build a random forest on the training data, tune parameter *mtry* if necessary.
+
+-----
+
+***ANSWER of Q2a:***
+```{r}
+library("randomForest")
+# tune random forest (mtry) manually
+p <- 9
+err.rfs <- rep(0, p)
+for(m in 1:p){
+    #set.seed(12)
+    rf <- randomForest(as.factor(y.train) ~ . - ID, data=x.train, mtry=m, ntree=501)
+    cat(m, rf$err.rate[501], "\n")
+    err.rfs[m] <- rf$err.rate[501]
+}
+plot(1:p, err.rfs, type="b", xlab="mtry", ylab="OOB Error")
+
+# fit a random forest model with mtry=1
+set.seed(12)
+bcw.rf <- randomForest(as.factor(y.train) ~ . - ID, data=x.train, mtry=1, ntree=501)
+bcw.rf
+plot(bcw.rf)
+```
+
+-----
+
+
+#### b. Find the top 2 important predictors, print the partial plots of them with respect to the case of malignant cancer, and briefly interpret the plots.
+
+-----
+
+***ANSWER of Q2b:***
+
+```{r}
+# variable importance
+varImpPlot(bcw.rf)
+
+# partial plot in RF
+partialPlot(bcw.rf, x.train, x.var="Uniformity_of_Cell_Shape", which.class="1")
+partialPlot(bcw.rf, x.train, x.var="Uniformity_of_Cell_Size", which.class="1")
+```
+
+Interpretation: it turns out that predictors **Uniformity_of_Cell_Shape** and **Uniformity_of_Cell_Size** play a critial role. For both preditors, if the rating is larger than 2, there is a significantly higher chance of being malignant breast cancer.
+
+-----
+
+
+
+### Q3. GBM Modeling. (3 points)
+#### a. Build a GBM on the training data, and tune parameters. To limit your search process, you can only consider **shrinkage** $\in \{0.001, 0.0005, 0.0003\}$, and **interaction.depth** $\in \{1, 2, 4\}$. Parameter **n.trees** should be determined by 10-fold cross validation.
+
+-----
+
+***ANSWER of Q3a:***
+
+```{r warning=FALSE, message=FALSE}
+library("gbm")
+
+# parameters under considerations
+lambdas <- c(0.001, 0.0005, 0.0003)
+l.size <- length(lambdas)
+ds <- c(1, 2, 4)
+d.size <- length(ds)
+n.step <- 15
+```
+
+The tuning loop:
+
+```{r cache=TRUE}
+# tune gbm by CV
+tune.out <- data.frame()
+for (j in 1:l.size) {
+    lambda <- lambdas[j]
+    for (i in 1:d.size) {
+        d <- ds[i]
+        for (n in (1:10) * n.step / (lambda * sqrt(d))) {
+            set.seed(321)
+            gbm.mod <- gbm(y.train ~ . - ID, data=x.train, distribution="bernoulli", n.trees=n, interaction.depth=d, shrinkage=lambda, cv.folds=10)
+            n.opt <- gbm.perf(gbm.mod, method="cv", plot.it=FALSE)
+            if (n.opt / n < 0.95) break
+        }
+        cv.err <- gbm.mod$cv.error[n.opt]
+        out <- data.frame(d=d, lambda=lambda, n=n, n.opt=n.opt, cv.err=cv.err)
+        tune.out <- rbind(tune.out, out)
+    }
+}
+tune.out
+```
+
+The optimal parameter found by tuning is **shrinkage = 0.0003**, **interaction.depth = 1**, and **n.trees = 20609**. We can now fit the GBM with all training data.
+```{r}
+# fit the optimal gbm model
+set.seed(321)
+bcw.gbm <- gbm(y.train ~ . - ID, data=x.train, distribution="bernoulli", n.trees=20609, interaction.depth=1, shrinkage=0.0003)
+bcw.gbm
+```
+
+-----
+
+
+#### b. Find the top 2 important predictors, print the partial plots of them with respect to the case of malignant cancer, and briefly interpret the plots.
+
+-----
+
+***ANSWER of Q3b:***
+
+```{r}
+# variable importance
+summary(bcw.gbm)
+
+# partial plot in gbm
+plot(bcw.gbm, i="Uniformity_of_Cell_Size")
+plot(bcw.gbm, i="Uniformity_of_Cell_Shape")
+```
+
+Interpretation: Same as in the random forest model, predictors **Uniformity_of_Cell_Shape** and **Uniformity_of_Cell_Size** play a critial role, although the ranking of the two predictors swaps. If Uniformity_of_Cell_Shape is larger than 2 and/or Uniformity_of_Cell_Size is larger than 1, there is a significantly higher chance of being malignant breast cancer. This is more in line with the Decision Tree prediction.
+
+-----
+
+
+
+### Q4. Validation of the models. (3 points)
+#### a. Compare the three models built in Q1, Q2, and Q3 in terms of misclassification rate on the validation data **x.valid** and **y.valid**. For now, you can use 0.5 as cutoff probability for all the models.
+
+The error rate of the best model should be less than 3%, otherwise something is wrong.
+
+-----
+
+***ANSWER of Q4a:***
+
+First, obtain class predictions on the validation data.
+```{r}
+pred.tree <- predict(bcw.tree.pruned, newdata=x.valid, type="class")
+pred.rf <- predict(bcw.rf, newdata=x.valid, type="response")
+pred.gbm <- predict(bcw.gbm, newdata=x.valid, n.trees=20609, type="response") > 0.5
+```
+Calculate the misclassification errors.
+```{r}
+table(y.valid, pred.tree)
+table(y.valid, pred.rf)
+table(y.valid, pred.gbm)
+```
+
+So tree has 12 errors out of 166 instances, random forest and GBM have 4 and 3 errors, respectively.
+
+-----
+
+
+#### b. Use the **ROCR** package to plot the misclassification rate agaist cutoff probabilities.
+
+-----
+
+***ANSWER of Q4b:***
+
+We need probability predictions on the validation data.
+```{r}
+prob.tree <- predict(bcw.tree.pruned, newdata=x.valid)[, 2]
+prob.rf <- predict(bcw.rf, newdata=x.valid, type="prob")[, 2]
+prob.gbm <- predict(bcw.gbm, newdata=x.valid, n.trees=20609, type="response")
+```
+
+Plot the misclassification errors agaist the cutoffs using the ROCR package.
+```{r message=FALSE}
+library("ROCR")
+prediction.tree <- prediction(prob.tree, y.valid)
+prediction.rf <- prediction(prob.rf, y.valid)
+prediction.gbm <- prediction(prob.gbm, y.valid)
+
+err.tree <- performance(prediction.tree, measure = "err")
+err.rf <- performance(prediction.rf, measure = "err")
+err.gbm <- performance(prediction.gbm, measure = "err")
+
+plot(err.tree, xlim=c(0, 1), ylim=c(0, 0.2), col="red")
+plot(err.rf, col="green", add=TRUE)
+plot(err.gbm, col="blue", add=TRUE)
+```
+
+----
+
+
+
+### Q5. Cost of prediction errors. (8 points)
+#### The last task is to make a final prediction on the test data. We have found that GBM performs the best; let's stick to it and ignore the tree and random forest models. The problem is that in practice, there are different costs associated to our prediciton errors. Suppose that for each **false positive** (predict 1 on a truly 0 instance), it costs $10,000; whereas for each **false negative** (predict 0 on a truly 1 instance), it costs $100,000. To incorporate such imbalance in costs, we need to find the right cutoff probability that minimizes the total cost. 
+
+#### a. Plot the false positive rate and false negative rate as a function of the cutoff probability on the validation data (use ROCR package).
+
+-----
+
+***ANSWER of Q5a:***
+
+```{r}
+fnr.gbm <- performance(prediction.gbm, measure = "fnr")
+fpr.gbm <- performance(prediction.gbm, measure = "fpr")
+plot(fnr.gbm, ylim=c(0,1), col="red")
+plot(fpr.gbm, add=TRUE, col="blue")
+```
+
+-----
+
+
+#### b. Plot the expected cost of prediction errors as a function of the cutoff probability.
+
+-----
+
+***ANSWER of Q5b:***
+
+```{r}
+cost.gbm <- performance(prediction.gbm, measure="cost", cost.fn=100000, cost.fp=10000)
+plot(cost.gbm)
+```
+
+Or, alternatively, one can calculate the cost from the FPR and FNR.
+```{r}
+# cost.gbm <- 10000 * fpr.gbm@y.values[[1]] + 100000 * fnr.gbm@y.values[[1]]
+# cutoff.gbm <- fnr.gbm@x.values[[1]][which.min(cost.gbm)]
+```
+
+-----
+
+
+#### c. Find the optimal cutoff probability that minimizes the expected cost.
+
+-----
+
+***ANSWER of Q5c:***
+
+```{r}
+cutoff.gbm <- cost.gbm@x.values[[1]][which.min(cost.gbm@y.values[[1]])]
+cutoff.gbm
+```
+
+-----
+
+
+#### d. With the optimal cutoff found based on the validation data, make your final SINGLE 0/1 prediction on the test data **x.test**, and save it as **y.test.pred**.
+
+-----
+
+***ANSWER of Q5d:***
+
+```{r}
+prob.test.gbm <- predict(bcw.gbm, newdata=x.test, n.trees=20609, type="response")
+y.test.pred <- ifelse(prob.test.gbm > cutoff.gbm, 1, 0)
+y.test.pred
+```
+
+-----
+
+
+
+At the end, we save the prediction for performance evaluation. PLEASE CHANGE THE FOLLOWING FILE NAME TO YOUR STUDENT ID.
+```{r}
+# save prediction to file
+save(y.test.pred, file="YOUR_STUDENT_ID.rdata")
+```
+
+PLEASE NAME THE RMD FILE WITH YOUR STUDENT ID AND SUBMIT ONLY IT TO IVLE.
+
+***[THE END]***
+
+
+```{r}
+# test errors
+load("bcw_test.rdata")
+table(y.test, y.test.pred)
+```

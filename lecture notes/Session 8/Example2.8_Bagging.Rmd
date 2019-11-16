@@ -1,0 +1,268 @@
+---
+title: "Illustration of Bagging"
+subtitle: "using Example 2.8 (page 65)"
+author: "Tong Wang"
+date: "October 2017"
+output:
+    html_document:
+        theme: yeti
+        highlight: tango
+---
+
+```{r setup, include=FALSE}
+# set global chunk options
+library("knitr")
+library("ggplot2")
+library("tree")
+library("tidyr")
+opts_chunk$set(cache=TRUE, message=FALSE)
+```
+
+## Introduction
+In this note, we illustrate Bagging of trees by replicating Example 2.8 in the textbook. The only extra add-on is that we will introduce an extra noise term $\epsilon$ in the target.
+
+
+## The Data Generating Model
+Under the data generating model specified in Example 2.8, $x \sim U[-1, 1]$ and $f(x) = \sin(\pi x)$. We introduce noise $\epsilon \sim N(0, \sigma^2)$ and let $y = f(x) + \epsilon$. Let's set a bit larger noise $\sigma=0.5$ for this illustration.
+
+```{r}
+set.seed(135790)
+# static parameters
+x.min <- -1
+x.max <- 1
+sigma <- 0.5
+# function for generating data
+data.gen <- function(N=2) {
+    x <- runif(n=N, min=x.min, max=x.max)
+    f.x <- sin(pi * x)
+    epsilon <- rnorm(n=N, mean=0, sd=sigma)
+    y <- f.x + epsilon
+    return(data.frame(x=x, y=y))
+}
+```
+
+We will first generate a big out-of-sample dataset from the same population; later it will be needed to evaluate the out-of-sample performance. 
+```{r}
+M <- 10000
+x.out <- sort(runif(n=M, min=x.min, max=x.max))  # order the data points by x for easy plots
+f.x.out <- sin(pi * x.out)
+y.out <- f.x.out + rnorm(n=M, mean=0, sd=sigma)
+data.out <- data.frame(x=x.out, y=y.out)
+```
+
+
+## The Hypothesis Sets
+### Hypothesis 0: constant prediction
+The $\mathcal{H}_0$ predicts a constant, and given a data sample, the best hypothesis in $\mathcal{H}_0$ will be predicting the mean $\bar{y}$.
+
+```{r}
+# function to generate constant prediction
+h0 <- function(data) {
+    return(c(mean(data$y), 0))  # return the intercept and slope as a vector (slope is zero)
+}
+```
+
+
+### Hypothesis 1: linear prediction
+The $\mathcal{H}_1$ fits a line based on the data.
+
+```{r}
+# function to generate line prediciton
+h1 <- function(data) {
+    lr <- lm(y ~ x, data)  # run a linear regression over the N data points
+    return(coef(lr))  # return the intercept and slope
+}
+```
+
+
+### Hypothesis 3: tree
+The hypothesis of interest is tree. Note here that the tree structure can differ from one to another, so we simply keep a record of the prediction on the test data of each tree.
+
+```{r}
+# function to generate tree prediciton
+h3 <- function(data.train, data.test) {
+    tree.fit <- tree(y ~ x, data.train)  # run a regression tree over the N data points
+    return(predict(tree.fit, newdata=data.test))
+}
+```
+
+
+## One Single Data Sample
+First, let's see what would happen if we just stick to a single data sample. Let's fix $N=50$ here. 
+
+```{r}
+N <- 50
+set.seed(4680)
+data0 <- data.gen(N=N)
+coef.h0 <- h0(data0)
+coef.h1 <- h1(data0)
+yhat.out.h3 <- h3(data0, data.out)
+```
+
+```{r}
+x.lim <- c(x.min, x.max)
+y.lim <- c(-2.5, 2.5)
+ggplot()  + geom_abline(intercept=coef.h0[1], slope=coef.h0[2], color="red") + 
+    geom_abline(intercept=coef.h1[1], slope=coef.h1[2], color="blue") + 
+    geom_line(aes(x=x.out, y=yhat.out.h3), color="green") +
+    geom_point(data=data0, aes(x=x, y=y)) + 
+    geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + 
+    coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+```
+
+
+## Averaging Hypotheses over Bootstrap Samples
+Now suppose we do not have access to the data generating model and hence cannot simulate more data samples from the population. We can still obtain similar result by the bootstrap: draw many (RUN=1000) bootstrap samples based on the data we have on-hand and generate predictions and compare the two hypothesis sets.
+```{r}
+# function for generating Bootstrap data sample
+data.bootstrap <- function(data) {
+    index <- sample(N, N, replace=TRUE)
+    return(data[index, ])
+}
+```
+
+
+```{r}
+RUN <- 1000
+g0_D.bs <- matrix(NA, nrow=RUN, ncol=2)  # output of H0
+g1_D.bs <- matrix(NA, nrow=RUN, ncol=2)  # output of H1
+g3_D_x.bs <- matrix(NA, nrow=RUN, ncol=M)  # test prediction of all the trees
+for (run in 1:RUN){
+    data <- data.bootstrap(data=data0)
+    g0_D.bs[run, ] <- h0(data)
+    g1_D.bs[run, ] <- h1(data)
+    g3_D_x.bs[run, ] <- h3(data, data.out)
+}
+```
+
+
+### Individual Hypotheses
+We can visualize the `r RUN` final hypotheses $g_0^{(D)}$, $g_1^{(D)}$, and $g_3^{(D)}$ together with the true function $f(x)$ (in blue).
+```{r fig.width = 10, fig.height=6}
+plot0 <- ggplot() + geom_abline(intercept=g0_D.bs[, 1], slope=g0_D.bs[, 2], alpha=0.05) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+
+plot1 <- ggplot() + geom_abline(intercept=g1_D.bs[, 1], slope=g1_D.bs[, 2], alpha=0.05) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+
+# reshape the tree prediction data for plotting
+data3 <- as.data.frame(g3_D_x.bs)
+colnames(data3) <- x.out
+data3$run <- 1:RUN
+data3.long <- data3 %>% gather(key=x.out, value=yhat, -run)
+data3.long$x.out <- as.numeric(data3.long$x.out)
+
+plot3 <- ggplot() + geom_line(data=data3.long, aes(x=x.out, y=yhat, group=run), alpha=0.05) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw() 
+
+cowplot::plot_grid(plot0, plot1, plot3, labels=c("H0", "H1", "H3"), align="h")
+```
+
+
+### Average Hypotheses
+We can also visualize the "average" hypotheses $\bar{g}_0(x)$ and $\bar{g}_1(x)$ and also their "variability" over another bigger data sample "x.out", which is to approximate the population. By definition, $\bar{g}(x) = \text{E}_D [g^{(D)}(x)]$, so we need to average out over $D$ while keeping the dependency on $x$. Similarly, we can measure variability over $D$ by $\text{SD}_D [g^{(D)}(x)]$.
+```{r}
+# for H0
+g0_D_x.bs <- g0_D.bs %*% t(cbind(1, x.out))
+g0_bar_x.bs <- colMeans(g0_D_x.bs)
+g0_sd_x.bs <- apply(g0_D_x.bs, 2, sd)  # apply "sd" columnwise
+# for H1
+g1_D_x.bs <- g1_D.bs %*% t(cbind(1, x.out))
+g1_bar_x.bs <- colMeans(g1_D_x.bs)
+g1_sd_x.bs <- apply(g1_D_x.bs, 2, sd)  # apply "sd" columnwise
+# for H3
+g3_bar_x.bs <- colMeans(g3_D_x.bs)
+g3_sd_x.bs <- apply(g3_D_x.bs, 2, sd)  # apply "sd" columnwise
+```
+
+With the above, we can visualize the "average" and "variability" as a function of $x$.
+```{r fig.width = 10, fig.height=6}
+plot0_bar <- ggplot() + geom_line(aes(x=x.out, y=g0_bar_x.bs), color="red", size=1) + geom_ribbon(aes(x=x.out, ymin=g0_bar_x.bs - g0_sd_x.bs, ymax=g0_bar_x.bs + g0_sd_x.bs), alpha=0.3) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+
+plot1_bar <- ggplot() + geom_line(aes(x=x.out, y=g1_bar_x.bs), color="red", size=1) + geom_ribbon(aes(x=x.out, ymin=g1_bar_x.bs - g1_sd_x.bs, ymax=g1_bar_x.bs + g1_sd_x.bs), alpha=0.3) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+
+plot3_bar <- ggplot() + geom_line(aes(x=x.out, y=g3_bar_x.bs), color="red", size=1) + geom_ribbon(aes(x=x.out, ymin=g3_bar_x.bs - g3_sd_x.bs, ymax=g3_bar_x.bs + g3_sd_x.bs), alpha=0.3) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+
+cowplot::plot_grid(plot0_bar, plot1_bar, plot3_bar, labels=c("H0", "H1", "H3"), align="h")
+```
+
+The Bagging model predicts with the average of the trees, i.e., **g3_bar_x.bs**, and the resulted MSE of this individual Bagging model is
+```{r}
+mse3 <- mean((t(g3_bar_x.bs) - y.out)^2)
+mse3
+```
+
+
+
+### Error Measures
+
+In order to say something about the Bias and Variance, we need to repeat the Bagging process (of 500 trees) many times. Let call it $\mathcal{H}_4$.
+
+```{r}
+# function to generate Bagging prediciton
+h4 <- function(data.train, data.test, ntree=500) {
+    N <- nrow(data.train)
+    M <- nrow(data.test)
+    tree.pred <- matrix(NA, nrow=ntree, ncol=M)
+    for (t in 1:ntree){
+        index <- sample(N, N, replace=TRUE)
+        tree.fit <- tree(y ~ x, data.train[index,]) 
+        tree.pred[t, ] <- predict(tree.fit, newdata=data.test)
+    }
+
+    return(colMeans(tree.pred))
+}
+
+g0_D <- matrix(NA, nrow=RUN, ncol=2)  # output of H0
+g1_D <- matrix(NA, nrow=RUN, ncol=2)  # output of H1
+g4_D_x <- matrix(NA, nrow=RUN, ncol=M)  # output of Bagging
+for (run in 1:RUN){
+    data <- data.gen(N=N)
+    g0_D[run, ] <- h0(data)
+    g1_D[run, ] <- h1(data)
+    g4_D_x[run, ] <- h4(data, data.out)
+}
+
+# for H0
+g0_D_x <- g0_D %*% t(cbind(1, x.out))
+g0_bar_x <- colMeans(g0_D_x)
+g0_sd_x <- apply(g0_D_x, 2, sd)  # apply "sd" columnwise
+# for H1
+g1_D_x <- g1_D %*% t(cbind(1, x.out))
+g1_bar_x <- colMeans(g1_D_x)
+g1_sd_x <- apply(g1_D_x, 2, sd)  # apply "sd" columnwise
+# for H4
+g4_bar_x <- colMeans(g4_D_x)
+g4_sd_x <- apply(g4_D_x, 2, sd)  # apply "sd" columnwise
+```
+
+
+
+Finally, we can calculate the Bias, Variance, and total MSE. Recall that
+$$\text{Bias} = \text{E}_x \left[ (\bar{g}(x) - f(x))^2 \right];~~~~~ \text{Variance} = \text{E}_x \text{E}_D \left[ (g^{(D)}(x) - \bar{g}(x))^2 \right];~~~~~ \text{MSE} = \text{E}_x \text{E}_D \left[ (g^{(D)}(x) - y)^2 \right].$$
+
+For $\mathcal{H}_0$, 
+```{r}
+bias0 <- mean((g0_bar_x - f.x.out)^2)
+variance0 <- mean((g0_D_x - g0_bar_x)^2)
+mse0 <- mean((t(g0_D_x) - y.out)^2)
+```
+for $\mathcal{H}_1$, 
+```{r}
+bias1 <- mean((g1_bar_x - f.x.out)^2)
+variance1 <- mean((t(g1_D_x) - g1_bar_x)^2)
+mse1 <- mean((t(g1_D_x) - y.out)^2)
+```
+and for $\mathcal{H}_4$, 
+```{r}
+bias4 <- mean((g4_bar_x - f.x.out)^2)
+variance4 <- mean((t(g4_D_x) - g4_bar_x)^2)
+mse4 <- mean((t(g4_D_x) - y.out)^2)
+```
+
+
+
+The final numbers are as follows.
+
+| Hypothesis Set | Bias | Variance | Irreducible Error | MSE |
+|----------------|------|----------|-----|-----|
+| $\mathcal{H}_0$: constant |`r bias0` | `r variance0` | `r mse0 - bias0 - variance0` | `r mse0` |
+| $\mathcal{H}_1$: linear   |`r bias1` | `r variance1` | `r mse1 - bias1 - variance1` | `r mse1` |
+| $\mathcal{H}_4$: bagging  |`r bias4` | `r variance4` | `r mse4 - bias4 - variance4` | `r mse4` |

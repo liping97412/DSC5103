@@ -1,0 +1,140 @@
+---
+title: "DSC5103 Assignment 4"
+subtitle: 'Bootstrapping Ridge Regression and LASSO'
+author: "Tong Wang"
+date: "Oct 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+
+## NOTE:
+This assignment is **due at 23:59 of Oct 18, Thursday**. You can work on this file directly and fill in your answers/code below. Please submit the output HTML file (name your file like G1Group02.html if you are from Group 02 of Section G1) onto IVLE/Files/Student Submission/Assignment4 folder.
+
+Also, put the Section/Group and member info below.
+```{r}
+# Section A1
+# Group 13
+# Members: REN JIEWEN, WANG XINRUI, XIAO RUI,LI LIPING
+```
+
+
+
+### Introduction
+In this assignment, we will apply the bootstrap on the regularization models (Ridge Regression and LASSO) we have obtained in Assignment 3 so as to gain better understanding about the variability of the coefficients in the final model.
+
+### Data Preparation
+First, let us get the data. We will use the **Heart** data from the textbook, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="http://www-bcf.usc.edu/~gareth/ISL/Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+N.train <- round(N/2)
+set.seed(456)
+train.index <- sample(1:N, N.train)
+data.train <- heart[train.index, ]
+data.test <- heart[- train.index,]
+```
+
+
+### Questions and Answers
+
+#### 1. [Single Ridge Regression & LASSO] Fit a Ridge Regression model on the training data, use the optimal $\lambda$ we obtained last time ($\lambda = 0.0402$), and print the coefficients of the optimal model. Fit a LASSO model on the training data, use the optimal $\lambda$ we obtained last time ($\lambda = 0.0186$), and print the coefficients of the the optimal model.   (1 Mark)
+
+Answer: 
+
+
+```{r}
+library("glmnetUtils")
+
+# Ridge Regression model
+ridge <- glmnet(AHD ~ ., data.train,family="binomial",alpha=0,lambda = 0.0402, use.model.frame=TRUE)
+# print the coefficients of the optimal model
+coef(ridge)
+
+# LASSO model
+lasso <- glmnet(AHD ~ .,data.train, family="binomial",alpha=1,lambda = 0.0186, use.model.frame=TRUE)
+# print the coefficients of the optimal model
+coef(lasso)
+```
+
+#### 2. [Bootstrap] Generate $B=500$ bootstrap samples from the training data. For each bootstrap sample, fit the Ridge Regression and LASSO models using there respective optimal lambda (as specified above), and keep a record of the models' coefficients.   (2 Marks)
+
+Answer:
+```{r}
+set.seed(456)
+B <- 500
+
+#Create 2 empty data frame to collect the coefficients of the model
+#Extract names from coefficient of the models
+dimnames <- dimnames(coef(ridge))[[1]]
+dimnames[1] = "Intercept"
+
+coef_ridge <- setNames(as.data.frame(matrix(nrow = B, ncol = nrow(coef(ridge))[[1]])),dimnames)
+coef_lasso <- setNames(as.data.frame(matrix(nrow = B, ncol = nrow(coef(lasso))[[1]])),dimnames)
+
+# Run the bootstrap models
+for(i in 1:B){
+  n_samples <- nrow(data.train)
+  sample_row_ids <- sample(1:n_samples,n_samples, replace=TRUE)
+  new.data.train <- data.train[sample_row_ids, ]
+  ridge_boot <- glmnet(AHD ~ ., new.data.train,family="binomial",alpha=0,lambda = 0.0402, use.model.frame=TRUE)
+  coef_ridge[i,] <- coef(ridge_boot)
+  lasso_boot <- glmnet(AHD ~ .,new.data.train, family="binomial",alpha=1,lambda = 0.0186, use.model.frame=TRUE)
+  coef_lasso[i,] <- coef(lasso_boot)
+}
+
+```
+
+
+
+#### 3. Plot the distributions (across the 500 bootstrap runs) of the intercept and the coefficients with respect to the following predictors: Age, MaxHR, and ThalNormal. How can we use these distributions?   (2 Marks)
+
+Answer:
+
+
+```{r}
+#Ridge models
+hist(coef_ridge$Intercept)
+hist(coef_ridge$Age)
+hist(coef_ridge$MaxHR)
+hist(coef_ridge$Thalnormal)
+
+#Lasso models
+hist(coef_lasso$Intercept)
+hist(coef_lasso$Age)
+hist(coef_lasso$MaxHR)
+hist(coef_lasso$Thalnormal)
+
+```
+### Usually we don't know the whole population and can only research on a sample from the population, which probably has different statistics.  When we use ensamble method and sample in the sample over times, although the mean of the sample mean can still be different, the deviation will be close to the true deviation of the population, from which we can generate reliable confidence interval and hypothesis testing.
+

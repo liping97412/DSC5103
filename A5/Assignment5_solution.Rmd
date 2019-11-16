@@ -1,0 +1,229 @@
+---
+title: "DSC5103 Assignment 5"
+subtitle: 'Decision Trees, Random Forest, and Gradient Boosting Machines --- Solutions and Remarks'
+author: "Tong Wang"
+date: "Oct 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width, turn off scientific notation for big numbers
+```
+
+
+### Introduction
+In this assignment, we will apply tree-based methods (Decision Trees, Random Forest, and GBM) to the heart disease classification problem, and compare them with previous methods we have used.
+
+### Data Preparation
+We will use the same **Heart** data, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+set.seed(456)
+train.index <- sample(1:N, round(N/2))
+test.index <- - train.index
+```
+Let's separate the test data for future use.
+```{r}
+x.test <- heart[test.index, 1:13]
+y.test <- heart[test.index, 14]
+```
+
+
+
+### Questions and Answers
+
+#### 1. [Tree] Fit the optimal tree model using the training data (including growing, cross-validation tree size, and pruning), and use the model to predict the probability of AHD using the test data.  (0 Mark)
+
+Answer: 
+
+```{r warning=FALSE, message=FALSE}
+library("tree")
+
+# grow a tree
+heart.tree <- tree(AHD ~ ., data=heart, subset=train.index)
+
+# pruning by cross-validation
+set.seed(123)
+heart.tree.cv <- cv.tree(heart.tree, method="misclass")
+
+# optimal tree size obtained by CV
+optimal <- which.min(heart.tree.cv$dev)
+optimal.size <- heart.tree.cv$size[optimal]
+
+# pruned tree
+heart.tree.pruned <- prune.tree(heart.tree, best=optimal.size, method="misclass")
+heart.tree.pruned
+plot(heart.tree.pruned)
+text(heart.tree.pruned, pretty=TRUE)
+
+# prediction on test data
+prob.tree <- predict(heart.tree.pruned, newdata=x.test, type="vector")[, 2]
+
+# misclassification error in test data
+pred.tree <- predict(heart.tree.pruned, newdata=x.test, type="class")
+table(pred.tree, y.test)
+```
+
+
+
+#### 2a. [Random Forest] Fit a Random Forest model with 501 trees on the training data (remember to optimize **mtry**), and predict the probability of AHD on the test data.  (1 Mark)
+
+**[REMARK]**: In binay classification, we often use an odd number of trees in order to break tie in the vote. 
+
+Answer: 
+
+```{r warning=FALSE, message=FALSE}
+library("randomForest")
+
+# tune random forest (mtry) by tuneRF (highly variable)
+#tuneRF(x=heart[train.index, -14], y=heart[train.index, 14], mtryStart=3, ntreeTry=501, stepFactor=1.5)
+
+# tune random forest (mtry) manually
+mse.rfs <- rep(0, 13)
+for(m in 1:13){
+    set.seed(12345)
+    rf <- randomForest(AHD ~ ., data=heart, subset=train.index, ntree=501, mtry=m)
+    mse.rfs[m] <- rf$err.rate[501]
+}
+plot(1:13, mse.rfs, type="b", xlab="mtry", ylab="OOB Error")
+
+# fit a random forest model
+set.seed(12345)
+heart.rf <- randomForest(AHD ~ ., data=heart, subset=train.index, ntree=501, mtry=1)
+heart.rf
+plot(heart.rf)
+
+# predict
+prob.rf <- predict(heart.rf, newdata=x.test, type="prob")[, 2]
+
+# misclassification error in test data
+pred.rf <- predict(heart.rf, newdata=x.test, type="response")
+table(pred.rf, y.test)
+```
+
+
+#### 2b. Plot the variable importance and find out how having AHD is related to variables *MaxHR* and *Thal*. Briefly interpret the plots.  (1 Mark)
+
+Answer: 
+
+```{r}
+# variable importance
+varImpPlot(heart.rf)
+
+# partial plot in RF
+partialPlot(heart.rf, heart[train.index, ], x.var="MaxHR", which.class="Yes")
+partialPlot(heart.rf, heart[train.index, ], x.var="Thal", which.class="Yes")
+```
+
+*MaxHR* seems negatively correlated to *AHD*: the higher the max heart rate, the smaller the chance of having AHD. The negative relationship is strong when *MaxHR* is in the range from 140 to 180.
+
+*Thal* is a categorical variable for the result of "Thalium Stress Test". When the test result is "normal", the log-odds of AHD reduces by 0.5, whereas if the result is "fixed" or "reversible," the log-odds of having AHD are larger by around 0.1 and 0.6.
+
+
+
+#### 3a. [Gradient Boosting Machines] Fit a GBM model on the training data, try your best to find the optimal **nrounds**, **eta**, and **max_depth** using cross-validtion, and predict the probability of AHD on the test data.  (1 Mark)
+
+**[REMARK]**: The misclassification errors obtained via cross validation seems to be jumpy, and you can switch to deviance (using eval_metric="logloss") for a smoother error curve, just like what we did for LASSO and ridge regression. I did some tuning with "logloss" and end up having *n.trees = 1183*, *eta = 0.005*, *max_depth = 2*, *subsample=0.5*, and *colsample_bytree=1*. If you do not feel comfortable with the randomness in the CV process, you can repeat the process with multiple seed and average the results.
+
+Answer: 
+
+```{r warning=FALSE, message=FALSE}
+library("xgboost")
+
+# convert data for xgboost
+x.train <- model.matrix(AHD ~ ., data=heart[train.index, ])[, -1]
+y.train <- as.numeric(heart[train.index, "AHD"]) - 1
+dtrain <- xgb.DMatrix(data=x.train, label=y.train)
+x.test <- model.matrix(AHD ~ ., data=heart[-train.index, ])[ ,-1]
+
+
+# fit a boosting model with optimal parameters
+set.seed(4321)
+heart.xgb <- xgboost(data=dtrain, objective="binary:logistic", nrounds=1183, max_depth=2, eta=0.005, subsample=0.5, colsample_bytree=1, verbose=0)
+
+# predict
+prob.xgb <- predict(heart.xgb, x.test)
+
+# misclassification error in test data
+pred.xgb <- as.factor(ifelse(prob.xgb > 0.5, "Yes", "No"))
+table(pred.xgb, y.test)
+```
+
+
+#### 3b. Plot the variable importance, find out the partial dependency on variables *MaxHR*, *Thal*, and the two variables *Age* and *Chol* jointly. Briefly interpret the plots.  (1 Mark)
+
+Answer: 
+
+```{r warning=FALSE, message=FALSE}
+# variable importance
+importance_matrix <- xgb.importance(model = heart.xgb, feature_names = colnames(x.train))
+xgb.plot.importance(importance_matrix=importance_matrix)
+
+
+# partial plot by pdp
+library("pdp")
+plotPartial(partial(heart.xgb, train=x.train, pred.var="MaxHR", prob=TRUE))
+plotPartial(partial(heart.xgb, train=x.train, pred.var="Thalnormal", prob=TRUE))
+plotPartial(partial(heart.xgb, train=x.train, pred.var="Thalreversable", prob=TRUE))
+plotPartial(partial(heart.xgb, train=x.train, pred.var=c("Age", "Chol") , prob=TRUE, chull=TRUE))
+```
+
+"MaxHR" and "Thal" exhibit the same patterns as the ones we found by random forest. The joint dependency plot shows that the risk of having "AHD" is decreasing-then-increasing in "Chol" (the optimal level of "Chol" is around 200 -- 250), and is increasing-then-decreasing in "Age" (the risky age is around 55--65).
+
+
+
+#### 4. Compare the above-studied model predictions in terms of misclassification rate and AUC. (1 Mark)
+
+Answer: 
+
+```{r warning=FALSE, message=FALSE}
+library("ROCR")
+prediction.tree <- prediction(prob.tree, y.test)
+prediction.rf <- prediction(prob.rf, y.test)
+prediction.xgb <- prediction(prob.xgb, y.test)
+
+err.tree <- performance(prediction.tree, measure = "err")
+err.rf <- performance(prediction.rf, measure = "err")
+err.xgb <- performance(prediction.xgb, measure = "err")
+
+plot(err.tree, ylim=c(0.1, 0.5))
+plot(err.rf, col="red", add=TRUE)
+plot(err.xgb, col="blue", add=TRUE)
+
+# AUC
+as.numeric(performance(prediction.tree, "auc")@y.values)
+as.numeric(performance(prediction.rf, "auc")@y.values)
+as.numeric(performance(prediction.xgb, "auc")@y.values)
+```
+
+
+
+#### 5. [OPTIONAL] Try to mix the predictions we have here and we had from Assignment 4 and construct an ensemble prediction that performs better.

@@ -1,0 +1,360 @@
+---
+title: "DSC5103 Test 1 --- Solutions and Remarks"
+subtitle: 3 questions, 20 points in total
+date: "Oct 2017"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, warning=FALSE, echo=FALSE, cache=FALSE, message=FALSE}
+options(width = 100)  # set output width
+```
+
+## NOTE:
+This is an *individual* test. You can refer to whatever sources of information or materials, online or offline, but do not communicate with any other people. You can work on this file directly and fill in your answers/code below. Please submit the output RMD and HTML file (name your file like e0012345.rmd and e0012345.html if your NUS ID is e0012345) onto IVLE/Files/Student Submission/Test1 folder. 
+
+*There is no official time limit for this test. However, penalty will be given to late submission and is proportional to the time taken. The first 120 minutes will be penalty free, and after that, **one point** will be deducted for every extra **5-minute** chunk of time (e.g., if you take a total of 128 minutes, 2 points will be deducted.). Submission time is based on the last file you upload to the IVLE submission folder.*
+
+Also, fill your info below. (**This is critical as your NUS user id will be used in determining your random sample of the data!**)
+```{r}
+student.name <- "Lady Gaga"  # put your name here
+student.id <- 0012345  # put only the numeric digits of your NUS user id here
+```
+
+## Part I: Red cards and skin tone
+
+In this part, we shall investigate football players' chance of receiving a [red card](https://en.wikipedia.org/wiki/Penalty_card#Red_card) and its relationship with the player's skin tone.
+
+### Data Overview
+The data has been cleaned and prepared in an RData format. You can load the file by doing the following. 
+```{r}
+load("redcards.rdata")  # load the data (make sure the .rdata file is in your working directory!)
+```
+After successfully loading the file, you should see a data frame called **data.player** together with some other auxilliary objects. 
+```{r}
+ls(all.names=T)  # list all the objects in the data file
+```
+
+The data frame **data.player** is a dataset obtained from a company for sports statistics. We have data and profile photos from the soccer players (N = 1419) playing in the first male divisions of England, Germany, France and Spain in the 2012-2013 season. We created a dataset, where each data point is the record of a player's whole career: number of games played, number of wins, number of red cards, etc. and, in particular, our dependent variable, the number of red cards given to the player throughout his career.
+
+Player photos were available from another public data source. Players' skin tone was coded by two independent human raters blind to the research question who, based on the player's profile photo, categorized players on a 5-point scale ranging from "very light skin" to "very dark skin" with "neither dark nor light skin" as the center value. 
+
+A detailed description of all variables in the dataset can be seen in the list below.
+
+- "player": player name (it may consists of non-English letters, please ignore the display issue here);
+- "club": player club as in the 2012-2013 season;
+- "leagueCountry": country of player club (England, Germany, France, and Spain);
+- "birthday": player birthday (in DD.MM.YYYY format);
+- "height": player height (in cm);
+- "weight": player weight (in kg);
+- "position": detailed player position (e.g., "Goalkeeper", "Defensive Midfielder");
+- "photoID": ID of player photo;
+- "rater1": skin rating of photo by rater 1 (5-point scale ranging from "very light skin" to "very dark skin");
+- "rater2": skin rating of photo by rater 2 (5-point scale ranging from "very light skin" to "very dark skin");
+- "games": total number of games for the player-referee pair;
+- "victories": number of victories among the games for the player-referee pair;
+- "ties": number of ties (draws) among the games for the player-referee pair;
+- "defeats": number of defeats among the games for the player-referee pair;
+- "goals": goals scored by the player in the games for the player-referee pair;
+- "redCards": number of red cards the player received from the referee for the player-referee pair.
+
+
+You can check the dimension and summary.
+```{r}
+dim(data.player)  # show data.I dimensions
+summary(data.player)  # summary
+```
+
+
+
+
+### Q1. Red cards by league/county (6 points)
+The first question we want to answer is whether there is any difference across the four leagues (England, Germany, France and Spain) in terms of red cards received by players in their whole career. 
+
+#### Q1a. Analyst Atalay proposes the following Model 1a using Poisson regression. Interpret the league/country differences according to Atalay's Model 1a. (2 points)
+
+```{r}
+glm1a <- glm(data=data.player, formula= redCards ~ leagueCountry, family=poisson)
+summary(glm1a)
+```
+
+
+-----
+
+***ANSWER of Q1a:***
+
+Accoroding Model 1a, France is not significantly different from England (the baseline), whereas players in the German league received significantly less red cards than those in English league, and players in the Spanish league received significantly more red cards than those in England. 
+
+To order the leagues from less to more red cards, we have Germany << England << Spain, and France $\approx$ England.
+
+-----
+
+
+#### Q1b. Another analyst, Baptiste, agrees with Atalay's Poisson model but insists of using Germany as the reference country. Below is his Model 1b. Is the conclusion in Model 1b on league/country difference the same as in Model 1a? If yes, explain why; if no, describe the differences. (2 points)
+
+```{r}
+data.player$leagueCountry2 <- relevel(data.player$leagueCountry, ref="Germany")
+glm1b <- glm(data=data.player, formula= redCards ~ leagueCountry2, family=poisson)
+summary(glm1b)
+```
+
+-----
+
+***ANSWER of Q1b:***
+
+Not exactly the same. Model 1b only indicates that Germany (the baseline) has significantly less red cards than all the other three leagues. We can only conclude that the ordering is Germany << England,  Germany <<  France, and Germany << Spain. Model 1b does not separate Spain out from England. 
+
+**REMARK:** Keep in mind that the coefficents measure pairwise difference between the league of interst and the baseline league. The choice of the baseline can make a whole lot of differences!
+
+
+-----
+
+
+#### Q1c. Ceren, Alalay's girlfriend, does not even agree with the two models using Poisson regression because the models only count the red cards but ignore the number of games played. She thinks that receiving red cards should be a binary event and one should actually use Logistic regreesion insead. Formulate a Logistic regression model to explain league/country difference. What is the conclusion now? (2 points)
+
+
+-----
+
+***ANSWER of Q1c:***
+
+Logistic regression is indeed a better choice because we are interested in the probability of a player receiving red card in a game. In a game, a player will receive either zeor or one red card. The data is in binomial form, so, in order to run Logistic regression, we need to have the two columns ready: number of red cards (success) and number of games without red cards (failure).
+
+```{r}
+data.player$noreds <- data.player$games - data.player$redCards
+glm1c <- glm(data=data.player, formula=cbind(redCards, noreds) ~ leagueCountry, family=binomial)
+summary(glm1c)
+```
+
+According to Model 1c, England and Germany have no statistical difference; whereas both France and Spain have significantly higher chance (than England) for a player to receive a red card in a game. The ordering now becomes England $\approx$ Germany,  England << France, and England << Spain.
+
+
+-----
+
+
+
+
+### Q2. Red cards by physical attributes (6 points)
+
+Now let's focus on the players' physical attributes: skin tone ratings, height, weight, and position.
+
+#### Q2a. Atalay, who sticks to his Poisson model, build the follow Model 2a to see the overall effect of skin tone ratings. 
+```{r}
+glm2a <- glm(data=data.player, formula=redCards ~ rater1 + rater2, family=poisson)
+summary(glm2a)
+```
+
+We see the two coefficients for *rater1* and *rater2* have different sign, however, the two raters' rating are not that different if we just plot them out. 
+```{r}
+plot(data.player$rater1, data.player$rater2)
+```
+
+What is wrong here? (2 points)
+
+-----
+
+***ANSWER of Q2a:***
+
+There is a multicollinearity issue in the model because *rater1* and *rater2* are highly correlated (the correlation is `r cor(data.player$rater1, data.player$rater2)`). The regression model cannot decide how to allocate coefficients among the two predictors. The coefficients are not trustworthy. 
+
+
+-----
+
+
+#### Q2b. Propose a fix to Model 2a (you may ignore the argument over Poisson versus Logistic regression). What is the conclusion according to your model? (2 points)
+
+
+-----
+
+***ANSWER of Q2b:***
+
+A quick fix is to combine the two ratings into one (using sum or average) or to use either one of the ratings in the model. Here I use the sum of the two.
+
+```{r}
+glm2b <- glm(data=data.player, formula=redCards ~ I(rater1 + rater2), family="poisson")
+summary(glm2b)
+```
+
+According to Model 2b, players with darker skin tone (higher rating) are receiving more red cards. (Note: this is a Poisson model, so it is not about the probability of receiving red cards, but the average number of red cards that one received.)
+
+
+-----
+
+
+
+### Q3. The true effect of skin tone (2 points)
+
+#### Q3a. With all the data available, select the best model using stepAIC(), and interpret the effect of skin tones. (2 points)
+
+
+-----
+
+***ANSWER of Q3a:***
+
+It is more appropriate to use Logistic regression. We can build a large model then reduce it down with stepAIC().
+
+The larger model can include all the variables, except the following:
+
+1. "player": this is the identifier of a data point. Including "player" will lead to a saturated model;
+2. "birthday": it is a string that does not mean too much by itself. Of course, one can derive predictors such as age, birth_month, birth_weekday, or even constellation.
+3. "photoID": the file name does not carry any information.
+4. choose one from "club" and "leagueCountry": "club" carries all the information in "leagueCountry" (the two variables are hiarchical). "club" is a pretty big categorical variable, so better keep "leagueCountry".
+
+```{r}
+glm3a <- glm(data=data.player, formula=cbind(redCards, noreds) ~ leagueCountry + I(rater1 + rater2) + height + weight + position + victories + ties + defeats + goals, family="binomial")
+library("MASS")
+glm3a.aic <- stepAIC(glm3a, direction="backward")
+summary(glm3a.aic)
+```
+
+The final model after stepAIC() indicates that after controling for "leagueCountry", "height", "weight", "position", "victories", and "goals", the sum of skin tone rating has a *statistically significant and positive relationship* with the probability of receiving red cards. Everything else being equal, players with darker skin tend to be more likely to receive a red card in a game.
+
+-----
+
+
+
+
+## Part II: P-value, Significance, and Variable Selection (8 points)
+
+In this part, we conduct a simulation experiment to gain better understanding about variable selection. The following code simulates a dataset with $N = 100$ data points, each with a $y \sim \text{uniform}(-1, 1)$ and a $20$-dimensional $x$ vector that are NOISES and not related to $y$ at all. We will try different variable selection methods and see which is the best at excluding noise predictors.
+
+```{r}
+set.seed(student.id)
+N <- 100
+D <- 20
+data <- data.frame(y=runif(n=N, min=-1, max=1))
+for (d in 1:D) {
+    data[, paste0("x", d)] <- runif(n=N, min=-1, max=1)
+}
+summary(data)
+```
+
+
+#### Q4a. Atalay fitted the following Model 4a to explain $y$ with all the available $x$. He is about to keep all the significant $x$ (at 0.95 confidence level) in his final model. Which $x$'s are significant ? What is the $R^2$ of Model 4a? Why is this the case given we actually know that all the $x$'s are generated noises? (2 points)
+
+```{r}
+lm4a <- lm(y ~ ., data)
+summary(lm4a)
+```
+
+-----
+
+***ANSWER of Q4a:***
+
+In Model 4a, "x7" and "x12" are significant at 95% confidence level. The $R^2$ of the model is 27.36%. Since the predictors are purely noises, the significance and $R^2$ are driven by randomness.
+
+**REMARK:** At 95% confidence level, each predictor may turn out to be significant purely out of chance with probability 5%; so with 20 such predictors, we should expect to see around one significant variable. In practice, one may leverage this effect by collecting lots of noise predictors and eventually constructing a model that looks really good.
+
+
+
+-----
+
+
+
+#### Q4b. Baptiste thinks it is naive to just look at the full linear model 4a and its in-sample error measure $R^2$ and p-values. He wants to do variable selection using AIC as the criterion. Help Baptiste choose the best model using stepAIC(). Does this lead to a more reasonable model with less noise predictors? (2 points)
+
+
+-----
+
+***ANSWER of Q4b:***
+
+We can start with the full linear model 4a and shrink backward.
+
+```{r}
+library("MASS")
+lm4b <- stepAIC(lm4a, direction="backward")
+summary(lm4b)
+```
+
+We expected that stepAIC() does a better job at excluding the noises, but the final model keeps more variables: "x5", "x7", "x8", "x10", "x12", "x14", and "x16". Given we know the $x$'s are all noises, this is worse than the linear model.
+
+-----
+
+
+#### Q4c. Ceren does not like the stepwise variable selection procedure by stepAIC(). She hopes to do a full subset selection using Adjusted $R^2$ as the performance measure. Does this leads to a more reasonable model that excludes the noise predictors? (2 points)
+
+
+-----
+
+***ANSWER of Q4c:***
+
+We use regsubsets() to identify the best models within each group with a given number of predictors (d = 1, 2, ..., 20), and then use adjusted $R^2$ to choose the best out of the 20 best models.
+```{r}
+library("leaps")
+lm4c <- regsubsets(y ~ ., data, nvmax=D)
+reg.summary <- summary(lm4c)
+plot(reg.summary$adjr2)
+p.subset <- which.max(reg.summary$adjr2)
+coef(lm4c, id=p.subset)
+```
+
+The resulted "best" model (as shown above) is even bigger.
+
+
+-----
+
+
+
+#### Q4d. Up to this point, the three analysts agree that it may not be a problem of using linear regression or stepwise variable selection or full subset selection. No matter what they do, their final model will have some noise predictors included. The real problem seems to be the performance measure. $R^2$, adjusted $R^2$, or AIC may not fully represents the out-of-sample performance. They need a better solution. Use 10-fold cross-validation to evaluate the models, and choose the best according to cross-validated MSE. Summarize your final model and the variables selected. (2 points)
+
+
+
+-----
+
+***ANSWER of Q4d:***
+
+
+```{r}
+# first create a predict() function for regsubsets()
+predict.regsubsets <- function(object, newdata, p, ...){
+    form <- as.formula(object$call[[2]])
+    mat <- model.matrix(form, newdata)
+    coefi <- coef(object, id=p)
+    xvars <- names(coefi)
+    mat[,xvars] %*% coefi
+}
+
+K <- 10  # k-fold CV
+# partion data into K folds
+set.seed(student.id)
+fold <- sample(rep(seq(K), length=N))
+table(fold)
+
+# data frame for storing the results
+predictions <- data.frame(fold=fold)
+
+# K-fold CV
+for(k in 1:K){
+    predictions[fold == k, "pred0"] <- mean(data[fold != k, "y"])  # manually add Model0 (with 0 predictors) for comparison
+    model.k <- regsubsets(y ~ ., data=data[fold != k, ], nvmax=D)
+    for(i in 1:D){
+        pred <- predict(model.k, data[fold == k, ], p=i)
+        predictions[fold == k, paste0("pred", i)] <- pred
+    }
+}
+head(predictions)
+
+# calculate cross-validation MSE
+cv.residuals <- data$y - predictions[, 2:(D+2)]
+cv.mse <- colMeans(cv.residuals ^ 2)
+cv.mse
+# plot CV MSE against in-sample MSE 
+plot(0:D, cv.mse, type="o", ylim=c(0.1, 0.6), col="red")
+lines(1:D, reg.summary$rss / N, type="o")  # in-sample MSE
+
+
+# optimal p
+which.min(cv.mse)
+
+```
+
+By using cross-validation to evaluate the models with various number of predictors, we find that the model with 0 predictor performs the best in terms of MSE. We managed to rule out all the noises with cross validation.
+
+
+-----
+
+***[THE END]***

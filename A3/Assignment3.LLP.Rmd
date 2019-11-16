@@ -1,0 +1,224 @@
+---
+title: "DSC5103 Assignment 3"
+subtitle: 'Regularization Methods in Classification'
+author: "Tong Wang"
+date: "Sep 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  
+# set output width, turn off scientific notation for big numbers
+```
+
+## NOTE:
+This assignment is **due at 23:59 of Oct 4, Thursday**. You can work on this file directly and fill in your answers/code below. Please submit the output HTML file (name your file like G1Group02.html if you are from Group 02 of Section G1) onto IVLE/Files/Student Submission/Assignment3 folder.
+
+Also, put the Section/Group and member info below.
+```{r}
+# Section A1
+# Group 13
+# Members: REN JIEWEN, WANG XINRUI, XIAO RUI,LI LIPING
+```
+
+
+
+### Introduction
+In this assignment, we will apply regularization methods (Ridge Regression, LASSO, and Elastic Net) to a classification problem, and compare them with traditional Logistic Regression.
+
+Before we start, it is necessary to read through the documentation of the functions **glmnet()** (specifically, the *family* option), **cv.glmnet()** (the *family* and *type.measure* options), and **predict.glmnet()** (the *type* option) in the **glmnet** package, and find out how to run generalized linear models with regularization.
+
+### Data Preparation
+First, let us get the data. We will use the **Heart** data from the textbook, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="http://www-bcf.usc.edu/~gareth/ISL/Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+N.train <- round(N/2)
+set.seed(456)
+train.index <- sample(1:N, N.train)
+data.train <- heart[train.index, ]
+data.test <- heart[- train.index,]
+```
+
+
+### Questions and Answers
+#### 1. [Logistic Regression as a benchmark] Find the optimal Logistic Regression model with **stepAIC()** using the training data, and use the model to predict using the test data.  (1 Mark)
+
+Answer: 
+
+```{r}
+# put your R code here inside the blocks
+model_glm <- glm(AHD~.,data = data.train,family = "binomial")
+library(MASS)
+step <- stepAIC(model_glm,trace=FALSE)
+step$anova
+model_glm_optimal <- glm(AHD ~ Age + Sex + RestBP + MaxHR + ExAng + Slope + Ca + Thal,data=data.train,family = "binomial")
+library(dplyr)
+data.test_cut <- data.test[,1:13]
+pred_glm <- predict(model_glm_optimal,newdata = data.test_cut,type = "response")
+```
+
+
+
+#### 2. [Ridge Regression] Fit a Ridge Regression model on the training data, use cross-validtion to find the optimal $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer: 
+
+```{r}
+# put your R code here inside the blocks
+library("glmnetUtils")
+ridge <- glmnet(AHD ~ ., data.train,family="binomial",alpha=0, use.model.frame=TRUE)
+# plot the fitted model
+plot(ridge, xvar="lambda", label=TRUE)
+## use CV to find optimal lambda
+set.seed(456)
+ridge.cv <- cv.glmnet(AHD~.,data.train,family="binomial",alpha=0,use.model.frame=TRUE)
+plot(ridge.cv)
+# optimal lambda
+ridge.lam <- ridge.cv$lambda.min
+log(ridge.lam)
+min(ridge.cv$cvm)
+points(log(ridge.lam), min(ridge.cv$cvm), cex=3)
+#### alternatively, set optimal lambda to lambda.1se for a more parsimonious model ####
+ridge.lam2 <- ridge.cv$lambda.1se
+log(ridge.lam2)
+min(ridge.cv$cvm) + ridge.cv$cvsd[which.min(ridge.cv$cvm)]
+points(log(ridge.lam2), min(ridge.cv$cvm) + ridge.cv$cvsd[which.min(ridge.cv$cvm)], cex=3)
+# plot optimal lambda
+plot(ridge.cv$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(ridge.lam), lty=2)
+abline(v=log(ridge.lam2), lty=2)
+#prediction using optimal lambda
+pred_ridge <- predict(ridge.cv,s=ridge.lam2,newdata = data.test_cut, type="response",exact=TRUE)
+```
+
+
+#### 3. [LASSO] Fit a LASSO model on the training data, use cross-validtion to find the optimal $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer: 
+
+```{r}
+# put your R code here inside the blocks
+### The Lasso
+# glmnet with alpha=1 means LASSO
+lasso <- glmnet(AHD ~ .,data.train, family="binomial",alpha=1, use.model.frame=TRUE)
+plot(lasso, xvar="lambda", label=TRUE)
+# CV for optimal lambda
+set.seed(456)
+lasso.cv <- cv.glmnet(AHD ~ .,data.train, family="binomial",alpha=1, use.model.frame=TRUE)
+plot(lasso.cv)
+# optimal lambda
+lasso.lam <- lasso.cv$lambda.min
+log(lasso.lam)
+points(log(lasso.lam), min(lasso.cv$cvm), cex=3)
+#### alternatively, set optimal lambda to lambda.1se for a more parsimonious model ####
+lasso.lam2 <- lasso.cv$lambda.1se
+log(lasso.lam2)
+min(lasso.cv$cvm) + lasso.cv$cvsd[which.min(lasso.cv$cvm)]
+points(log(lasso.lam2), min(lasso.cv$cvm) + lasso.cv$cvsd[which.min(lasso.cv$cvm)], cex=3)
+# plot optimal lambda
+plot(lasso.cv$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(lasso.lam), lty=2)
+abline(v=log(lasso.lam2), lty=2)
+# prediciton using optimal lambda
+pred_lasso <- predict(lasso.cv, s=lasso.lam2, newdata=data.test_cut,type="response", exact=TRUE)
+
+```
+
+
+#### 4. [Elastic Net] Fit an Elastic Net model on the training data, use cross-validtion to find the optimal $\alpha$ and $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer: 
+
+```{r}
+# put your R code here inside the blocks
+set.seed(456)
+# CV
+en.cva <- cva.glmnet(AHD ~ ., data.train, family="binomial",use.model.frame=TRUE)
+plot(en.cva)
+# choose optimal alpha manually
+minlossplot(en.cva, cv.type="min")
+# final model
+plot(en.cva$modlist[[9]])
+
+alpha_opt <- en.cva$alpha[9]
+lambda_opt <- en.cva$modlist[[9]]$lambda.min
+
+# plot optimal lambda
+plot(en.cva$modlist[[9]]$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(lambda_opt), lty=2)
+
+# prediciton using optimal lambda
+pred_en <- predict(en.cva,alpha=alpha_opt, s=lambda_opt, newdata=data.test_cut,type="response", exact=TRUE)
+
+```
+
+
+
+#### 5. Compare the above-studied model predictions in terms of misclassification rate, ROC, and AUC.  (1 Mark)
+
+Answer: 
+
+```{r}
+# put your R code here inside the blocks
+library(ROCR)
+pred.glm <- prediction(pred_glm,data.test$AHD)
+pred.ridge <- prediction(pred_ridge,data.test$AHD)
+pred.lasso <- prediction(pred_lasso,data.test$AHD)
+pred.en <- prediction(pred_en,data.test$AHD)
+#misclassification rate
+err_glm <- performance(pred.glm,"err")
+err_ridge <- performance(pred.ridge,"err")
+err_lasso <- performance(pred.lasso,"err")
+err_en <- performance(pred.en,"err")
+#plot error
+plot(err_glm,col="black")
+plot(err_ridge,col="green",add=TRUE)
+plot(err_lasso,col="red",add=TRUE)
+plot(err_en,col="blue",add=TRUE)
+legend(x=0.8,y=0.58,legend = c("err_glm","err_ridge","err_lasso","err_en"),lty = c(1,1,1,1),lwd = c(1,1,1,1),col = c("black","green","red","blue"),cex=0.8)
+#roc
+roc_glm <- performance(pred.glm,"tpr","fpr")
+roc_ridge <- performance(pred.ridge,"tpr","fpr")
+roc_lasso <- performance(pred.lasso,"tpr","fpr")
+roc_en <- performance(pred.en,"tpr","fpr")
+#plot roc
+plot(roc_glm,col="black")
+plot(roc_ridge,col="green",add=TRUE)
+plot(roc_lasso,col="red",add=TRUE)
+plot(roc_en,col="blue",add=TRUE)
+legend(x=0.8,y=0.3,legend = c("roc_glm","roc_ridge","roc_lasso","roc_en"),lty = c(1,1,1,1),lwd = c(1,1,1,1),col = c("black","green","red","blue"),cex=0.8)
+#auc
+performance(pred.glm,"auc")@y.values[[1]]
+performance(pred.ridge,"auc")@y.values[[1]]
+performance(pred.lasso,"auc")@y.values[[1]]
+performance(pred.en,"auc")@y.values[[1]]
+
+```

@@ -1,0 +1,187 @@
+---
+title: "Untitled"
+author: "Ren Jiewen"
+date: "10/31/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#### Load necessary libraries
+# general visualisation
+library('ggplot2') # visualisation
+library('scales') # visualisation
+library('grid') # visualisation
+library('gridExtra') # visualisation
+library('RColorBrewer') # visualisation
+library('corrplot') # visualisation
+
+# general data manipulation
+library('dplyr') # data manipulation
+library('readr') # input/output
+library('data.table') # data manipulation
+library('tibble') # data wrangling
+library('tidyr') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+
+# specific visualisation
+library('alluvial') # visualisation
+library('ggrepel') # visualisation
+library('ggforce') # visualisation
+library('ggridges') # visualisation
+#library('gganimate') # animations
+
+# specific data manipulation
+library('lazyeval') # data wrangling
+library('broom') # data wrangling
+library('purrr') # string manipulation
+library('reshape2') # data wrangling
+
+# Maps / geospatial
+library('geosphere') # geospatial locations
+library('leaflet') # maps
+library('leaflet.extras') # maps
+library('maps') # maps
+
+# Date plus forecast
+#library('lubridate') # date and time
+library('timeDate') # date and time
+library('tseries') # time series analysis
+library('forecast') # time series analysis
+library('prophet') # time series analysis
+library('timetk') # time series analysis
+library('jsonlite') # to read data
+
+yelp_business<-stream_in(file("yelp_training_set_business.json"),verbose = TRUE)
+yelp_checkin<-stream_in(file("yelp_training_set_checkin.json"),verbose = TRUE)
+yelp_review<-stream_in(file("yelp_training_set_review.json"),verbose = TRUE)
+yelp_user<-stream_in(file("yelp_training_set_user.json"),verbose = TRUE)
+
+yelp<-merge(yelp_review,yelp_business,by="business_id",all.x = TRUE)
+yelp1<-cbind(yelp_user$votes,yelp_user[,2:6])
+yelp<-merge(yelp,yelp1,by="user_id",all.x = TRUE)
+yelp<-cbind(yelp,yelp$votes$funny)
+yelp<-cbind(yelp,yelp$votes$useful)
+yelp<-cbind(yelp,yelp$votes$cool)
+
+#clean unnecessary variables
+yelp<-yelp[, !(colnames(yelp) %in% c("type","type.x","type.y","neighborhoods","votes"))]
+yelp <- yelp %>% select(-open,-name.y)
+
+#unlist the categories variable in review
+yelp$categories <- vapply(yelp$categories, paste, collapse = ", ", character(1L))
+
+# Filter to get only data on Restaurants
+yelp$restaurant <- ifelse(grepl("Restaurants", yelp$categories), "yes", "no")
+yelp$food <- ifelse(grepl("Food", yelp$categories), "yes", "no")
+yelp$bar <- ifelse(grepl("Bars", yelp$categories), "yes", "no")
+yelp <- yelp %>% filter(yelp$restaurant == "yes" | yelp$food == "yes" | yelp$bar == "yes")
+
+```
+
+```{r}
+# Get train data and test data 
+set.seed(5152)
+train_id <- sample(1:nrow(yelp), nrow(yelp)/10)
+train_data <- yelp[train_id,]
+after_train_data <- yelp[-train_id,]
+
+set.seed(5152)
+test_id <- sample(1:nrow(after_train_data), nrow(after_train_data)/10)
+test_data <- after_train_data[test_id,]
+
+yelp <- rbind(train_data,test_data)
+```
+
+```{r}
+# Create cuisine to summarize categories
+cuisine <- c("American","African","Italian","Steakhouse","Japanese","Chinese","Korean","Seafood","French","Indian","Mexican","British","Barbeque","Tapas","Grill","Afternoon Tea","Halal","Deli","Dim Sum","European","International","Latin American","Mediterranean","Caribbean","Southease Asian","Bars","Breakfast","Thai","Pizza","Burger","Bakeries","Vietnamese","Cuban","Sandwiches","Hot Dogs","Fish & Chips","Coffee","Fusion","Ethiopian","Buffet","Desserts","Ice Cream","German","Diner","Fast Food","Filipino","Wine","Greek","Gelato","Tex-Mex","Vegetarian","Donuts","Afghan","Taiwanese","Bagels","Fondue","Middle Eastern","Hawaiian","Soul Food","Mongolian","Cajun","Peruvian","Chicken Wings","Argentine","Breweries","Cambodian","Polish","Basque","Turkish","Gastropubs","Cafe","Persian","Burmese","Nightlife","Scandinavian","Candy Stores","Street Vendors","Shopping","Hotel","Meat Shops","Grocery","Convenience Stores","Farmers Market","Spa","Vegan","Irish")
+
+res <- yelp[1,] %>% mutate(cuisine = "NA")
+for (i in 1:length(cuisine)){
+  subset <- yelp[grep(cuisine[i], yelp$categories), ] %>% mutate(cuisine = cuisine[i])
+  res <- rbind(res,subset)
+}
+res <- res[2:nrow(res),]
+
+not_classified <- yelp[!(yelp$business_id %in% res$business_id),] %>% mutate(cuisine = "Unspecified")
+# Further filtering to get only data on restaurants
+res <- res[!(res$cuisine %in% c("Street Vendors","Shopping","Hotel","Meat Shops","Candy Stores","Convenience Stores","Farmers Market","Spa","Grocery")),]
+
+# Combine some of the cuisine labels 
+Snacks <- c("Bagels","Bakeries","Chicken Wings","Desserts","Hot Dogs","Ice Cream","Gelato","Sandwiches","Donuts")
+AfternoonTea <- c("Cafe","Coffee")
+Nightlife <- c("Gastropubs","Wine","Bars","Nightlife","Breweries")
+European <- c("European","Argentine","German","Greek","Basque","Irish","Persian","Polish","Tapas","Turkish","Scandinavian","Fondue")
+British <- c("British","Fish & Chips")
+LatinAmerican <- c("Latin American","Caribbean","Cuban","Peruvian")
+Chinese <- c("Chinese","Taiwanese")
+American <- c("American","Seafood","Buffet","Steakhouse","Diner","Barbeque","Pizza","Burger","Deli","Soul Food","Hawaiian","Tex-Mex")
+SouthAsia <- c("Cambodian","Burmese","Mongolian","Filipino","Indian")
+MiddleEastern <- c("Middle Eastern","Ethiopian","Halal","Afghan")
+Unspecified <- c("Unspecified","African","Cajun","Vegan")
+
+cuisine_list <- list(Snacks=Snacks,AfternoonTea=AfternoonTea,Nightlife=Nightlife,European=European,British=British,LatinAmerican=LatinAmerican,Chinese=Chinese,American=American,SouthAsia=SouthAsia,MiddleEastern=MiddleEastern)
+new <- res[1,]
+for(i in 1: length(cuisine_list)){
+  cur_list <- unlist(cuisine_list[i])
+  for(j in 1: length(cur_list)){
+    subset <- res %>% filter(res$cuisine == cur_list[j]) %>% mutate(cuisine = names(cuisine_list)[i])
+    new <- rbind(new,subset)
+  }
+}
+new <- new[2:nrow(new),]
+ 
+# Get rid of repeated reviews
+final <- rbind(res[!(res$business_id %in% new$business_id),],new)
+unique <- final %>% select(-cuisine) %>% unique()
+ 
+# Final result
+require(data.table)
+setDT(final); 
+setDT(unique) # convert to data.tables by reference
+cleaned <- final[unique, mult = "first", on = "review_id", nomatch=0L] 
+cleaned <- cleaned[,1:27] %>% select(-restaurant,-food,-bar)
+
+```
+
+
+```{r}
+## Create new variables, wcount, emark,and qmark
+cleaned$wcount<-rep(0,nrow(cleaned))
+
+for(i in 1:nrow(cleaned))
+{
+  cleaned$wcount[i]<-sapply(strsplit(as.character(cleaned$text[i]), " "), length)
+}
+
+cleaned$qmark<-rep(0,nrow(cleaned))
+for(i in 1:nrow(cleaned))
+{
+  cleaned$qmark[i]<-sum(gregexpr("[?]", as.character(cleaned$text[i]))[[1]] > 0)
+}
+
+cleaned$emark<-rep(0,nrow(cleaned))
+for(i in 1:nrow(cleaned))
+{
+  cleaned$emark[i]<-sum(gregexpr("[!]", as.character(cleaned$text[i]))[[1]] > 0)
+}
+
+# Only keep city labels for top 10 cities 
+top_cities <- c("Phoenix","Scottsdale","Tempe","Chandler","Mesa"," Glendale","Gilbert","Peoria","Avondale","Surprise")
+
+others <- cleaned[!(cleaned$city %in% top_cities),] %>% mutate(city = "Others")
+top <- cleaned[(cleaned$city %in% top_cities),]
+cleaned<- rbind(others,top)
+
+cleaned <- read.csv('clean_yelp.csv')
+cleaned <- cleaned[,-c(1,2,3,6,7)]
+
+write_csv(cleaned,"clean_yelp.csv")
+```
+

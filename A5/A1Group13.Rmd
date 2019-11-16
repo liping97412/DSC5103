@@ -1,0 +1,271 @@
+---
+title: "DSC5103 Assignment 5"
+subtitle: 'Decision Trees, Random Forest, and Gradient Boosting Machines'
+author: "Tong Wang"
+date: "Oct 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width, turn off scientific notation for big numbers
+```
+
+## NOTE:
+This assignment is **due at 23:59 of Oct 25, Thursday**. You can work on this file directly and fill in your answers/code below. Please submit the output HTML file (name your file like G1Group02.html if you are from Group 02 of Section G1) onto IVLE/Files/Student Submission/Assignment5 folder.
+
+Also, put the Section/Group and member info below.
+```{r}
+# Section A1
+# Group 13
+# Members: RENJIE WEN, XIAO RUI, LI LIPING, WANG XINRUI
+```
+
+
+
+### Introduction
+In this assignment, we will apply tree-based methods (Decision Trees, Random Forest, and GBM) to the heart disease classification problem, and compare them with previous methods we have used.
+
+### Data Preparation
+We will use the same **Heart** data, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="http://www-bcf.usc.edu/~gareth/ISL/Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+set.seed(456)
+train.index <- sample(1:N, round(N/2))
+test.index <- - train.index
+```
+Let's separate the test data for GBM use.
+```{r}
+x.test <- heart[test.index, 1:13]
+y.test <- heart[test.index, 14]
+```
+
+### Questions and Answers
+
+#### 1. [Tree] Fit the optimal tree model using the training data (including growing, cross-validation tree size, and pruning), and use the model to predict the probability of AHD using the test data.  (0 Mark)
+
+Answer: 
+
+```{r,message=FALSE,warning=FALSE}
+library(tree)
+tree <- tree(AHD ~ .,heart, subset = train.index)
+#CV
+set.seed(456)
+tree.cv <- cv.tree(tree)
+plot(tree.cv, type="b")
+optimal <- which.min(tree.cv$dev)
+optimal.k <- tree.cv$k[optimal]
+optimal.size <- tree.cv$size[optimal]
+#Prune
+tree.pruned <- prune.tree(tree,best=optimal.size)
+plot(tree.pruned)
+text(tree.pruned,pretty=TRUE)
+# Predict
+tree.pred <- predict(tree.pruned, newdata=heart[test.index, ], type="vector") 
+
+```
+
+#### 2a. [Random Forest] Fit a Random Forest model with 501 trees on the training data (remember to optimize **mtry**), and predict the probability of AHD on the test data.  (1 Mark)
+
+Answer: 
+
+```{r,message=FALSE,warning=FALSE}
+library(randomForest)
+set.seed(456)
+heart.rf <- randomForest(AHD~ ., data=heart, subset=test.index, ntree=501)
+
+# Tune random forest (mtry) manually
+oob.rfs <- rep(1, 13)
+for(m in 1:13){
+    set.seed(12)
+    rf <- randomForest(AHD ~ ., data=heart, subset=train.index, mtry=m,ntree=501 )
+    oob.rfs[m] <- rf$err.rate[501,1]
+}
+plot(1:13, oob.rfs, type="b", xlab="mtry", ylab="OOB Error")
+optimal <- which.min(oob.rfs) # optimal = 1
+
+heart.rf.tuned <- randomForest(AHD~ ., data=heart, subset=test.index, mtry=optimal, ntree=501)
+yhat.rf <- predict(heart.rf.tuned, newdata=heart[test.index,],type="prob")
+
+```
+
+#### 2b. Plot the variable importance and find out how having AHD is related to variables *MaxHR* and *Thal*. Briefly interpret the plots.  (1 Mark)
+
+Answer: 
+
+```{r message=FALSE,warning=FALSE}
+# rebuild the model with "importance=TRUE" for more variable importance (%IncMSE)
+heart.rf2 <- randomForest(AHD ~ ., data=heart, subset=train.index,ntree=501,mtry=1,importance=TRUE)
+heart.rf2
+# variable importance
+importance(heart.rf2)  # by default, we only have IncNodePurity
+varImpPlot(heart.rf2)
+```
+
+Discussion: </p>
+</p> Since the criteria of variable importance is different in two cases, we have different rankings for different variables. The first graph shows that if a variable is assigned values by random permutation by how much will the MSE increase. $MeanDecreaseAccuracy$ measures how much including a predictor to the model reduces classification error. </p>
+So if we randomly permute $Thal$ (i.e. an observation which had $thal$ fixed but randomly assign other features normally), the $MeanDecreaseAccuracy$ will decrease by around **13.3%** if we remove $THal$. The higher the value, the higher the variable importance. In this case, $thal$ is more important than $MaxHR$ in predicting $AHD$. </p>
+In the second graph, variable importantce is measured by $GiniIndex$ which is the difference between RSS before and after the split on that variable. In this case, $MaxHR$ has a low $Gini$ (higher descrease in Gini), which means that it matters more in partitioning the data. $MaxHR$ is more important than $Thal$ in predicting $AHD$. </p>
+
+#### 3a. [Gradient Boosting Machines] Fit a GBM model on the training data, try your best to find the optimal **nrounds**, **eta**, and **max_depth** using cross-validtion, and predict the probability of AHD on the test data.  (1 Mark)
+
+Answer: 
+
+```{r,message=FALSE,warning=FALSE}
+library(xgboost)
+x.train <- model.matrix(AHD ~ ., data=heart[train.index, ])[, -1]
+y.train <- heart[train.index, "AHD"]
+y.train <- as.numeric(y.train)-1
+x.test <- model.matrix(AHD ~ ., data=heart[-train.index, ])[ , -1]
+y.test <- heart[-train.index, "AHD"]
+
+# Construct a dense matrix for xgboost to consume
+dtrain <- xgb.DMatrix(data=x.train, label=y.train)
+# Fit an XGBoost model
+set.seed(456)
+xgb1 <- xgboost(data=dtrain, objective="binary:logistic", nrounds=5000, max_depth=4, eta=0.005, subsample=0.5, colsample_bytree=1,verbose=0)
+#str(xgb1)
+
+# data: dtrain in xgb.DMatrix format
+objective <- "binary:logistic"
+cv.fold <- 5
+# parameter ranges
+max_depths <- c( 1, 2, 4,  6, 8)  # candidates for d 
+etas <- c(0.01, 0.005, 0.001, 0.0005, 0.0001)  # candidates for lambda 0.05, 
+
+# generate data partition
+set.seed(456)
+fold <- sample(rep(seq(cv.fold), length=nrow(dtrain)))
+fold.list <- list()
+for (k in 1:cv.fold) {
+    fold.list[[k]] <- which(fold==k)
+}
+
+tune.out <- data.frame()
+for (max_depth in max_depths) {
+    for (eta in etas) {
+                n.max <- round(100 / (eta * sqrt(max_depth)))
+                if (objective == "reg:linear") {
+                    xgb.cv.fit <- xgb.cv(data = dtrain, objective=objective, verbose=0,
+                                         folds=fold.list, early_stopping_rounds=100,
+                                         nrounds=n.max, max_depth=max_depth, eta=eta)
+                    n.best <- xgb.cv.fit$best_ntreelimit
+                    cv.err <- xgb.cv.fit$evaluation_log$test_rmse_mean[n.best]
+                } else if (objective == "binary:logistic") {
+                    xgb.cv.fit <- xgb.cv(data = dtrain, objective=objective, verbose=0,
+                                         folds=fold.list, early_stopping_rounds=1000, eval_metric="logloss", # "error", "auc"
+                                         nrounds=n.max, max_depth=max_depth, eta=eta)
+                    n.best <- xgb.cv.fit$best_ntreelimit
+                    #cv.err <- xgb.cv.fit$evaluation_log$test_error_mean[n.best]
+                    cv.err <- xgb.cv.fit$evaluation_log$test_logloss_mean[n.best]
+                    #cv.err <- xgb.cv.fit$evaluation_log$test_auc_mean[n.best]
+                }
+                out <- data.frame(max_depth=max_depth, eta=eta, n.max=n.max, nrounds=n.best, cv.err=cv.err)
+                #print(out)
+                tune.out <- rbind(tune.out, out)
+            }
+}
+
+plot(xgb.cv.fit$evaluation_log$iter, xgb.cv.fit$evaluation_log$test_logloss_mean, type="l")
+
+tune.out
+opt <- which.min(tune.out$cv.err) 
+max_depth.opt <- tune.out$max_depth[opt]  #max_depth.opt = 2
+eta.opt <- tune.out$eta[opt] #eta.opt = 0.01
+nrounds.opt <- tune.out$nrounds[opt] #nrounds.opt = 647
+
+optimal.xgb <- xgboost(data=dtrain, objective="binary:logistic",
+                nround=nrounds.opt, max.depth=max_depth.opt, eta=eta.opt, subsample=0.5, colsample_bytree=1,
+                verbose=0)
+
+str(optimal.xgb)
+
+# predict yhat
+xgb.pred <- predict(optimal.xgb, newdata=x.test, type="prob")
+xgb.pred
+```
+
+
+#### 3b. Plot the variable importance, find out the partial dependency on variables *MaxHR*, *Thal*, and the two variables *Age* and *Chol* jointly. Briefly interpret the plots.  (1 Mark)
+
+Answer: 
+
+```{r,message=FALSE,warning=FALSE}
+# variable importance
+importance_matrix <- xgb.importance(model = optimal.xgb, feature_names = colnames(x.train))
+importance_matrix
+xgb.plot.importance(importance_matrix=importance_matrix)
+
+library(pdp)
+library(ggplot2)
+pd1 <- partial(optimal.xgb, train=x.train, pred.var = "MaxHR", chull = TRUE)
+# plot using lattice
+plotPartial(pd1)
+pd2 <- partial(optimal.xgb, train=x.train, pred.var = "Thalnormal", chull = TRUE)
+plotPartial(pd2)
+pd3 <- partial(optimal.xgb, train=x.train, pred.var = "Thalreversable", chull = TRUE)
+plotPartial(pd3)
+
+# 2-D partial plot
+pd4 <- partial(optimal.xgb, train=x.train, pred.var = c("Age", "Chol"), chull=TRUE)
+
+plotPartial(pd4)
+autoplot(pd4, contour = TRUE)
+
+```
+
+Discussion: </p>
+1. for the importance plot, $Oldpeak$, $MaxHR$, $Age$ and $Thal$ are very important features in terms of information gain. </p>
+2. The partial plot gives the marginal effect of a variable on the predicted probability of $AHD$. It shows that the probability of $AHD$ is around **45%** when $MaxHR$ is less than 140 and then it drops significantly to 0 when $MaxHR$ is around 150; There is a linear relationship between $Thainormal$ and the probaility of $AHD$. When $Thainormal$ increases by 1, probability drops by about **16%**; </p>
+3. as for the 2-D partial plot, we can see the $Age$ partition the probability of $AHD$ into three part at points 55 and 63. People aged between 55 and 63 are less likely to have AHD; in addition, when $Chol$ is between 200 and 230, there is high probability of $AHD$. Below or higher than that level is safer.
+
+
+#### 4. Compare the above-studied model predictions in terms of misclassification rate and AUC. (1 Mark)
+
+Answer: 
+
+```{r,message=FALSE,warning=FALSE}
+library(ROCR)
+# Misclassification error
+tree.prediction <- prediction(tree.pred[,2], heart[test.index, "AHD"])
+rf.prediction <- prediction(yhat.rf[,2], heart[test.index, "AHD"])
+xgb.prediction <- prediction(xgb.pred, heart[test.index, "AHD"])
+tree.err <- performance(tree.prediction, measure = "err")
+rf.err <- performance(rf.prediction, measure = "err")
+xgb.err <- performance(xgb.prediction, measure = "err")
+
+# AUC
+as.numeric(performance(tree.prediction, "auc")@y.values)
+as.numeric(performance(rf.prediction, "auc")@y.values)
+as.numeric(performance(xgb.prediction, "auc")@y.values)
+```
+
+
+#### 5. [OPTIONAL] Try to mix the predictions we have here and we had from Assignment 4 and construct an ensemble prediction that performs better.

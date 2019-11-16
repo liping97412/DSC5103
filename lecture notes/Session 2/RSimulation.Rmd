@@ -1,0 +1,221 @@
+---
+title: "Simulation in R"
+author: "Tong Wang"
+date: "August 2017"
+output:
+    html_document:
+        theme: yeti
+        highlight: tango
+---
+
+
+<!--
+
+
+
+---
+title: "Simulation in R"
+author: "Tong Wang"
+date: "July 2016"
+output:
+    ioslides_presentation:
+        css: ./RTutorial.css
+        fig_width: 5
+        fig_height: 4.5
+---
+-->
+
+```{r setup, include=FALSE}
+# set global chunk options
+library("knitr")
+opts_chunk$set(cache=TRUE, message=FALSE)
+```
+
+
+## Overview
+
+- Monte Carlo Simulation: to simulate the outcomes of a probablistic/stochastic model
+    - Specify the model: variables, their distributions, and their relationship
+    - Generate a number of realizations for each variable
+    - Evaluate the model output based on the variable realizations
+
+    
+## Simulation of Distributions
+
+### Random sampling
+- Equally likely, without replacement
+```{r sample1}
+letters  # a built-in vector of English letters
+sample(x=letters, size=5)  # sample 5 letters randomly
+sample(x=letters, size=5)  # sample another 5 letters, which is independent of the previous sample
+```
+
+
+- Equally likely, with replacement
+```{r sample2}
+outcomes <- c("head", "tail")
+sample(x=outcomes, size=6, replace=TRUE)  # flip a coin 6 times
+```
+
+
+- With specified probabilities and replacement
+```{r sample3}
+sample(x=outcomes, size=6, replace=TRUE, prob=c(0.3, 0.7))
+```
+
+### Uniform Distribution
+- Sample 10 data points from Uniform(2, 4)
+```{r unif}
+runif(n=10, min=2, max=4)  # type ?runif for details
+```
+
+
+### Poisson Distribution
+-  Sample 200 data points from Poisson(6)
+```{r pois1}
+x.pois <- rpois(n=200, lambda=6)  # type ?rpois for details
+head(x.pois)
+```
+
+- Check the sample statistics
+```{r pois2}
+mean(x.pois)  # mean
+sd(x.pois)  # standard deviation
+table(x.pois)  # frequency table
+plot(table(x.pois) / 200, ylim=c(0, 0.2))  # plot sample distribution
+lines(0:15, dpois(0:15, lambda=6), col="blue")  # overlay of the theoretical distribution
+points(0:15, dpois(0:15, lambda=6), col="blue")
+```
+
+
+### Binomial Distribution
+-  Sample 200 data points from Binomial(10, 0.7)
+```{r binom1}
+x.binom <- rbinom(n=200, size=10, p=0.7)  # type ?rbinom for details
+head(x.binom)
+
+plot(table(x.binom) / 200, ylim=c(0, 0.3))  # plot sample distribution
+lines(0:10, dbinom(0:10, size=10, p=0.7), col="blue")  # overlay of the theoretical distribution
+points(0:10, dbinom(0:10, size=10, p=0.7), col="blue")
+```
+
+
+### Normal Distribution
+- Sample 1000 points from a standard normal distribution $N(0, 1)$
+```{r norm1}
+x.norm <- rnorm(n=1000, mean=0, sd=1)  # type ?rnorm for details
+plot(x.norm, main='random draws from a standard normal')
+```
+
+- Check the sample statistics
+```{r norm2}
+mean(x.norm)
+sd(x.norm)
+hist(x.norm, probability=TRUE, breaks=30)  # plot sample distribution
+curve(dnorm(x, mean=0, sd=1), add=TRUE, col="blue")  # overlay of the theoretical distribution
+```
+
+
+### Multivariate Normal distribution
+- Sample 2000 points from a bivariate normal distribution with mean=(1, 2) and covariance matrix (9, 3; 3, 4)
+```{r mvnorm1}
+library("mvtnorm")  # multivariate normal distribution in package "mvtnorm"
+x.mvnorm <- rmvnorm(n=2000, mean=c(1, 2), sigma=matrix(c(9, 3, 3, 4), nrow=2, ncol=2))  # type ?rmvnorm for details
+head(x.mvnorm)
+```
+
+- Check the sample statistics
+```{r mvnorm2}
+colMeans(x.mvnorm)  # column means
+cov(x.mvnorm)  # covariance matrix
+plot(x.mvnorm)  # scatter plot of (x1, x2)
+```
+
+- We can also plot the density in 3D
+```{r mvnorm3}
+library("MASS")
+den3d <- kde2d(x.mvnorm[, 1], x.mvnorm[, 2])  # summarize the sample density
+persp(den3d, col="lightblue", box=FALSE, theta=0, phi=40)  # 3d plot
+```
+
+- and contour plot
+```{r mvnorm4}
+contour(den3d)  # contour plot
+```
+
+
+## Simulation of a Model
+### A Linear Model
+- Specify the model and parameters in linear model $y = \beta_0 + \beta_1 * x + \epsilon$, where $\epsilon \sim N(0, \sigma^2)$
+```{r lm1}
+beta0 <- 0  # intercept
+beta1 <- 2  # slope
+sigma <- 30  # epsilon ~ N(0, sigma^2)
+```
+- Make some random $x$ (n=100) in the interval [0, 100]
+```{r lm2}
+x <- runif(n=100, min=0, max=100)
+```
+- Simulate $\epsilon$ (n=100)
+```{r lm3}
+epsilon <- rnorm(n=100, mean=0, sd=sigma)
+```
+- Evaluate $y$
+```{r lm4}
+y <- beta0 + beta1*x + epsilon
+```
+
+- Check what we have generated
+```{r lm5}
+plot(x, y)  # sample data
+abline(a=beta0, b=beta1, col="blue")  # the TRUE data generating model
+```
+
+- Linear regression with x and y
+```{r lm6}
+lr <- lm(y ~ x)
+summary(lr)
+```
+
+### A Classification Data
+Suppose there are two groups of points, labelled in *red* and *blue*, and they have attributes $(x_1, x_2)$. The red group's attributes centers around $x_1=2, x_2=0$, following a standard bi-variate normal distribution, whereas the blue group also follows a standard bi-variate normal distribution centering around $x_1=0, x_2=2$.
+
+- Specify the parameters
+```{r class1}
+red.center <- c(2, 0)
+blue.center <- c(0, 2)
+cov.mat <- matrix(c(1, 0, 0, 1), nrow=2, ncol=2)
+```
+
+- Simulate 100 red points
+```{r class2r}
+reds <- rmvnorm(n=100, mean=red.center, sigma=cov.mat)
+head(reds)
+```
+
+- Simulate 100 blue points
+```{r class2b}
+blues <- rmvnorm(n=100, mean=blue.center, sigma=cov.mat)
+head(blues)
+```
+
+- Plot the points
+```{r class3}
+plot(x=c(-4, 6), y=c(-4, 6), type="n", xlab="x1", ylab="x2")  # lay down the canvas of proper size
+points(reds, col="red")  # plot the "red" points
+points(blues, col="blue")  # plot the "blue" points
+points(red.center[1], red.center[2], col="red", pch=9, cex=3, lwd=3)  # center for "red"
+points(blue.center[1], blue.center[2], col="blue", pch=9, cex=3, lwd=3)  # center for "blue"
+```
+
+
+## Seed for reproducible random numbers
+- Random number generation suffers from reproducibility---everytime it is run, the outcomes are different
+- This can be fixed by set the *seed* of the random number generator
+- Seed can be any positive integers
+```{r seed1}
+set.seed(5678)
+rnorm(n=5)
+set.seed(5678)
+rnorm(n=5)
+```

@@ -1,0 +1,178 @@
+---
+title: "Illustration of Boosting"
+subtitle: "using Example 2.8 (page 65)"
+author: "Tong Wang"
+date: "September 2017"
+output:
+    html_document:
+        theme: yeti
+        highlight: tango
+---
+
+```{r setup, include=FALSE}
+# set global chunk options
+library("knitr")
+library("ggplot2")
+opts_chunk$set(cache=F, message=FALSE)
+```
+
+## Introduction
+In this note, we illustrate Boosting by replicating Example 2.8 in the textbook. The only extra add-on is that we will introduce an extra noise term $\epsilon$ in the target.
+
+
+## The Data Generating Model
+Under the data generating model specified in Example 2.8, $x \sim U[-1, 1]$ and $f(x) = \sin(\pi x)$. We introduce noise $\epsilon \sim N(0, \sigma^2)$ and let $y = f(x) + \epsilon$. Let's set $\sigma=0.1$ so that we will have irreducible errors.
+
+```{r}
+set.seed(135790)
+# static parameters
+x.min <- -1
+x.max <- 1
+sigma <- 0.5
+# function for generating data
+data.gen <- function(N=2) {
+    x <- runif(n=N, min=x.min, max=x.max)
+    f.x <- sin(pi * x)
+    epsilon <- rnorm(n=N, mean=0, sd=sigma)
+    y <- f.x + epsilon
+    return(data.frame(x=x, y=y))
+}
+```
+
+We will first generate a big out-of-sample dataset from the same population; later it will be needed to evaluate the out-of-sample performance. 
+```{r}
+M <- 10000
+x.out <- sort(runif(n=M, min=x.min, max=x.max))  # order the data points by x for easy plots
+f.x.out <- sin(pi * x.out)
+y.out <- f.x.out + rnorm(n=M, mean=0, sd=sigma)
+```
+
+
+
+## The Hypothesis Sets
+### Hypothesis 5: boosting
+The hypothesis of interest is boosting. Here we use pre-tuned boosting parameters for brevity of exposistion.
+
+```{r}
+library("xgboost")
+
+# function to generate boosting prediciton
+h5 <- function(data.train, data.test) {
+    dtrain <- xgb.DMatrix(data=as.matrix(data.train$x), label=data.train$y)
+    # use pre-tuned parameter here
+    xgb.fit <- xgboost(data=dtrain, nround=1001, max.depth=1, eta=0.01, subsample=0.5, colsample_bytree=1, objective="reg:linear", verbose=0)
+    return(predict(xgb.fit, as.matrix(data.test)))
+}
+```
+
+
+## One Single Data Sample
+First, let's see what would happen if we just stick to a single data sample. Let's fix $N=50$ here.
+
+```{r}
+N <- 50
+set.seed(4680)
+data0 <- data.gen(N=N)
+yhat.out.h5 <- h5(data0, x.out)
+```
+
+```{r}
+x.lim <- c(x.min, x.max)
+y.lim <- c(-2.5, 2.5)
+ggplot()  + geom_line(aes(x=x.out, y=yhat.out.h5), color="green") +
+    geom_point(data=data0, aes(x=x, y=y)) + 
+    geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + 
+    coord_cartesian(ylim=y.lim, xlim=x.lim) + theme_bw()
+```
+
+The resulted MSE of this individual boosting model is
+```{r}
+mse5 <- mean((yhat.out.h5 - y.out)^2)
+mse5
+```
+
+
+## Inside the boosting algorithm
+
+Now let's examine the internal of the boosting algorithm, especially on how the trees are aggregated together. Below we reconstruct the simplest boosting model with no subsampling (subsample=1 and colsample_bytree=1), single-node trees (max.depty=1), no shrinkage (eta=1), and a total of 5 trees. Let's visualize the trees.
+
+```{r}
+dtrain <- xgb.DMatrix(data=as.matrix(data0$x), label=data0$y)
+xgb1 <- xgboost(data=dtrain, nround=5, max.depth=1, eta=1, subsample=1, colsample_bytree=1, objective="reg:linear", verbose=0)
+```
+
+### tree 1
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=1), lwd=2)
+```
+
+### tree 2 overlayed on tree 1
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=1), col="grey70")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=2), lwd=2)
+```
+
+### tree 3 overlayed on tree 2
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=2), col="grey70")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=3), lwd=2)
+```
+
+### tree 4 overlayed on tree 3
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=3), col="grey70")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=4), lwd=2)
+```
+
+### tree 5 overlayed on tree 4
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=4), col="grey70")
+lines(x.out, predict(xgb1, as.matrix(x.out), ntreelimit=5), lwd=2)
+```
+
+
+
+Now let's look at the optimal boosting model. 
+```{r}
+xgb2 <- xgboost(data=dtrain, nround=1001, max.depth=1, eta=0.01, subsample=0.5, colsample_bytree=1, objective="reg:linear", base_score=0, verbose=0)
+```
+
+Because of shrinkage, the first several trees contribute only a tiny little bit to the predition.
+```{r}
+plot(data0$x, data0$y, xlab="x", ylab="y")
+lines(x.out, predict(xgb2, as.matrix(x.out), ntreelimit=1), col="grey70")
+lines(x.out, predict(xgb2, as.matrix(x.out), ntreelimit=2))
+```
+
+
+We can acutally generate predictions with the first $n$ trees, with $n = 1, 51, 101, \ldots, 1001$, and visualize the change over time.
+```{r}
+step <- 50
+I <- 21
+ntree <- (1:I - 1)*step + 1
+yhat.bytree <- matrix(NA, nrow=I, ncol=M)
+# generate predictions with the first n trees
+for (i in 1:I) {  
+    yhat.bytree[i, ] <- predict(xgb2, as.matrix(x.out), ntreelimit=ntree[i])
+}
+
+library("tidyr")
+yhat.df <- as.data.frame(yhat.bytree)
+colnames(yhat.df) <- x.out
+yhat.df$ntree <- ntree
+yhat.df.long <- yhat.df %>% gather(key=x.out, value=yhat, -ntree)
+yhat.df.long$x.out <- as.numeric(yhat.df.long$x.out)
+ggplot() + geom_line(data=yhat.df.long, aes(x=x.out, y=yhat, group=ntree, color=ntree)) + geom_line(aes(x=x.out, y=f.x.out), color="darkblue", size=1) + labs(x="x", y="y") + coord_cartesian(ylim=y.lim, xlim=x.lim) + scale_colour_gradient(low = "lightgrey", high = "black") + theme_bw() 
+```
+
+
+A 3-D visualization of the aggregation of trees.
+```{r warning=FALSE}
+library("plotly")
+plot_ly(x=x.out, y=ntree, z=yhat.bytree, type = "surface") 
+```

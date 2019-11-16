@@ -1,0 +1,301 @@
+---
+title: "new model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+###data clean 
+```{r message=FALSE, warning=FALSE}
+####  preparation ###### 
+library(tidyverse)
+library(caret)
+library(glmnetUtils)
+library(caret)
+library(dplyr)
+
+# import data
+yelp <- read.csv('yelp_clean.csv') %>% na.omit()
+
+# onehot category variables   
+dmy <- dummyVars(" ~ .", data = yelp, fullRank = T)
+data_transformed <- data.frame(predict(dmy, newdata = yelp))
+
+# Get train data and test data 
+train_data <- data_transformed [1:round(nrow(data_transformed)/2),]
+test_data <- data_transformed [(round(nrow(data_transformed)/2)+1):nrow(data_transformed),]
+
+# set fixed parameter used in the following step
+fitControl <- trainControl(method = "cv", number = 5)
+outcomeName<-'stars'
+predictors<-names(data_transformed)[!names(data_transformed) %in% outcomeName]
+
+# create normalization function and normalized dataset
+normalize_data <- function(testdata, traindata){
+  n_testdata <- testdata 
+  for (n in names(testdata)){
+    n_testdata[,n] <-  
+      (testdata[,n] - min(traindata[,n])) /  (max(traindata[,n]) -  min(traindata[,n]))
+  } 
+  return(n_testdata)
+}
+
+train_norm <- as.data.frame(normalize_data(
+  train_data %>% dplyr::select(-stars), train_data %>% dplyr::select(-stars)))
+train_norm$stars <- train_data$stars
+
+test_norm <- as.data.frame(normalize_data(
+  test_data %>% dplyr::select(-stars), train_data %>% dplyr::select(-stars)))
+test_norm$stars <- test_data$stars
+```
+
+
+
+```{r}
+###### baseline model ######
+#linear regression
+lm.mod <- lm(stars ~ ., train_norm)
+lm.pred <- predict(lm.mod, test_norm)
+lm.varimp <- as.data.frame(varImp(lm.mod))
+RMSE(lm.pred, test_norm$stars)
+summary(lm.mod)
+#write.csv(lm.varimp,"lm.varimp.csv")
+#1.117211
+```
+
+
+```{r}
+#step AIC
+set.seed(5103)
+library(MASS)
+step <- stepAIC(lm.mod,trace=FALSE)
+step$anova
+lm.mod_step <- lm(stars ~ city.Mesa + city.Others + city.Scottsdale + city.Tempe + 
+    review_count.x + review_count.y + yelp.votes.funny + yelp.votes.useful + 
+    yelp.votes.cool + cuisine.American + cuisine.Breakfast + 
+    cuisine.Chinese + cuisine.Fast.Food + cuisine.Fusion + cuisine.Italian + 
+    cuisine.Japanese + cuisine.Korean + cuisine.Mexican + cuisine.Nightlife + 
+    cuisine.Snacks + cuisine.SouthAsia + cuisine.Thai + cuisine.Vietnamese + 
+    wcount + qmark + emark, train_norm)
+lm.varimp_step <- as.data.frame(varImp(lm.mod_step))
+lm_step.pred <- predict(lm.mod_step, test_norm)
+RMSE(lm_step.pred, test_norm$stars)
+summary(lm.mod_step)
+#1.11369
+#write.csv(lm.varimp_step,"lm.varimp_step.csv")
+```
+
+
+```{r}
+# glmnet
+#lasso
+set.seed(5103)
+lasso.cv <- cv.glmnet(stars ~ ., train_norm, alpha=1, use.model.frame=TRUE)
+# optimal lambda
+lasso.lam <- lasso.cv$lambda.min #0.003393452
+lasso.mod <- glmnet(stars ~ ., train_norm, alpha=1, lambda=lasso.lam, use.model.frame=TRUE)
+lasso.pred <- predict(lasso.mod, test_norm)
+RMSE(lasso.pred, test_norm$stars)
+coef(lasso.mod,s=lasso.lam)
+
+# 1.116176
+```
+
+```{r}
+#ridge
+set.seed(5103)
+ridge.cv <- cv.glmnet(stars ~ ., train_norm, alpha=0, use.model.frame=TRUE)
+# optimal lambda
+ridge.lam <- ridge.cv$lambda.min #0.01853597
+ridge.mod <- glmnet(stars ~ ., train_norm, alpha=0, lambda=ridge.lam, use.model.frame=TRUE)
+ridge.pred <- predict(ridge.mod, test_norm)
+RMSE(ridge.pred, test_norm$stars)
+coef(ridge.mod,s=ridge.lam)
+#1.118149
+```
+
+
+```{r}
+#Elastic Net
+set.seed(5103)
+# CV
+en.mod <- cva.glmnet(stars ~ ., train_norm, use.model.frame=TRUE)
+# choose optimal alpha manually
+minlossplot(en.mod, cv.type="min")
+alpha_opt <- en.mod$alpha[10] #0.729
+lambda_opt <- en.mod$modlist[[10]]$lambda.min #0.00465494
+# prediciton using optimal lambda
+en.pred <- predict(en.mod,alpha=alpha_opt, s=lambda_opt, newdata=test_norm,exact=TRUE)
+RMSE(en.pred, test_norm$stars)
+coef(en.mod,alpha=alpha_opt,s=lambda_opt)
+#1.116241
+```
+-First we construct a linear regression model using all the variables in the dataset, from the result above, we can see that the coefficients of $review_count.x$,$yelp.votes.cool$,$emark$ are positive and significant, which means these features have a postive impact on ratings. The coefficients of $yelp.votes.funny$,$yelp.votes.useful$,$wcount$,$qmark$ are negative and significant, which means these features have a negative impact on ratings. And we get a RMSE of 1.117211 in this model.
+-To improve the performance of linear model, we use stepAIC method to select some of the variables in the dataset as independent variables, then we got the final formula as shown above. We get a RMSE of 1.11369 in this model. According to the result of this model, most of the coefficients are significant here. We will focus on the variables that have larger abusolute value. And we will explain these variables one by one.
+  -$yelp.votes.funny$, the coefficient is significant and negative, which means if a review    is voted as funny, it always the case that the content of the review is to make jokes       about the restaurant, so the overall sentiment should be negative, such as the food         tastes like shit.
+  -$yelp.votes.useful$,the coefficient is significant and negative, which means if a review    is useful to other customers, the review should be a negative review that remind other      customers not to come to this restaurant again
+  -$yelp.votes.cool$,the coefficient is significant and positive, which means if a review is    voted as cool, this review is more likely to be a positive review.
+  -$emark$, the coefficient is significant and positive, which means the more exclamation      mark in a review, the higher the rating tend to be. 
+  -$qmark$, the coefficient is significant and negative, which means the more question mark    in a review, the more likely it is a negative review. 
+  -$wcount$, the coefficient is significant and negative, which means nowadays people tend     to write more words in a negative review to criticize the detail of a restaurant.
+-Last, we fit three glmnet models. The most important variables are all the same with the linear models above.The best models of lasso, ridge and elastic net give us the RMSE of 1.116176,1.118149 and 1.116241 respectively.
+
+```{r}
+
+##########################################################################################################
+#KNN
+
+#stratified CV for training
+library("FNN")
+folds <- 5
+cvIndex <- createMultiFolds(train_norm$stars, folds)
+
+#control for cv - SAME FOR ALL MODELS
+ctrl_model <- trainControl(index = cvIndex,
+                          method="cv",
+                          number=folds
+                          )
+knn_grid = expand.grid(.k=c(1:15))
+train.n <- is.na(train_norm)
+set.seed(5152)
+knn.mod <- train(stars ~., 
+                 data=train_norm,
+                 method = "knn",
+                 trControl=ctrl_model,
+                 tuneGrid=knn_grid,
+                 metric = "RMSE"
+)
+
+knn.mod
+
+knn.mod <- knnreg(train_norm[,predictors], train_norm[,outcomeName], k=15)
+knn.pred<- predict(knn.mod, test_norm[,predictors])
+RMSE(knn.pred, test_data$stars)
+
+
+#Random Forest
+# tune_rf <- expand.grid(.mtry = 10:25)
+tune_rf <- expand.grid(.mtry = 16)
+rf.mod <- train( train_norm[,predictors], train_norm[,outcomeName], method = 'rf', tuneGrid = tune_rf, trControl=fitControl, metric = "RMSE" )
+rf.pred <- predict(rf.mod, test_norm, type = 'raw')
+RMSE(rf.pred, test_data$stars)
+
+
+# xgboost
+set.seed(5152)
+#tune_xgb <- expand.grid(.nrounds = c(20,50,60,100), .max_depth = c(3,4), .eta = c(0.1,0.2,0.25), .gamma = c(0.1,0.05), .colsample_bytree =c(0.6,0.8,1), .min_child_weight = c(3,4,5), .subsample = c(0.6,0.8,1))
+tune_xgb <- expand.grid(.nrounds = c(50), .max_depth = c(4), .eta = c(0.2), .gamma = c(0.1), .colsample_bytree =c(0.8), .min_child_weight = c(4), .subsample = c(0.8))
+xgb.mod <- train( train_norm[,predictors], train_norm[,outcomeName], method = 'xgbTree', tuneGrid = tune_xgb, trControl=fitControl, metric = "RMSE")
+xgb.pred <- predict(xgb.mod, test_norm, type = 'raw')
+RMSE(xgb.pred, test_data$stars)
+varImp(xgb.pred)
+
+
+###### stacking ########
+
+library(Metrics)
+
+pred_knn<-as.data.frame(pred_knn)
+pred_rf<-as.data.frame(pred_rf)
+pred_rpart<-as.data.frame(pred_rpart)
+pred_xgb<-as.data.frame(pred_xgb)
+pred_svm<-as.data.frame(pred_svm)
+C<-cbind(pred_xgb,pred_knn,pred_rf,pred_rpart, pred_svm)
+C<-cbind(C,test_data$stars)
+colnames(C)[6]<-"y"
+lm1<-lm(y~.,data=C)
+lm1_pred<-predict(lm1,C[-6])
+lm1_pred<-as.data.frame(lm1_pred)
+C<-cbind(C,lm1_pred)
+rmse(C$y,C$lm1_pred)
+
+```
+
+
+Feature engineering and new model 
+```{r message=FALSE, warning=FALSE}
+# onehot category variables   
+dmy <- dummyVars(" ~ .", data = train_data, fullRank = T)
+data_transformed <- data.frame(predict(dmy, newdata = train_data))
+
+# Get train data and test data 
+set.seed(5152)
+train_id <- sample(1:nrow(data_transformed), nrow(data_transformed)/10)
+train_data <- data_transformed[train_id,]
+after_train_data <- data_transformed[-train_id,]
+set.seed(5152)
+test_id <- sample(1:nrow(after_train_data), nrow(after_train_data)/10)
+test_data <- after_train_data[test_id,]
+
+# set fixed parameter used in the following step
+fitControl <- trainControl(method = "cv", number = 5)
+outcomeName<-'stars'
+predictors<-names(data_transformed)[!names(data_transformed) %in% outcomeName]
+
+
+###### new model after feature engineering  ######
+
+# Rpart could not find a good way to split the features in baseline model session, which is the reason why pred_rpart get the same value, so we didn't include rpart in this session. 
+
+
+#KNN
+#ks <- c( 3, 5, 7, 9, 11, 15)
+#rmse <- numeric(length=length(ks))
+#pred <- numeric(length=length(ks))
+#for (i in seq(along=ks)) {
+#    model <- knnreg(train_data[,predictors], train_data[,outcomeName], k=ks[i])
+#    pred[i] <- predict(model, train_data[,predictors])
+#   rmse[i] <- RMSE(pred[i], train_data$stars)
+#}
+#opt_k <- ks[which.min(rmse)]
+opt_k=15
+model_knn_new <- knnreg(train_data[,predictors], train_data[,outcomeName], k=opt_k)
+pred_knn_new<- predict(model_knn_new, test_data[,predictors])
+RMSE(pred_knn_new, test_data$stars)
+
+# glmnet
+set.seed(5152)
+lasso.cv <- cv.glmnet(stars ~ ., train_data, alpha=1, use.model.frame=TRUE)
+# optimal lambda
+lasso.lam <- lasso.cv$lambda.min
+lasso_new <- glmnet(stars ~ ., train_data, alpha=1, lambda=lasso.lam, use.model.frame=TRUE)
+pred_lasso_new <- predict(lasso_new, test_data)
+RMSE(pred_lasso_new, test_data$stars)
+
+
+#Random Forest
+#tune_rf <- expand.grid(.mtry = 10:25)
+tune_rf <- expand.grid(.mtry = 16)
+model_rf_new <- train( train_data[,predictors], train_data[,outcomeName], method = 'rf', tuneGrid = tune_rf, trControl=fitControl)
+pred_rf_new <- predict(model_rf_new, test_data, type = 'raw')
+RMSE(pred_rf_new, test_data$stars)
+
+
+# xgboost
+set.seed(5152)
+#tune_xgb <- expand.grid(.nrounds = c(20,50,60,100), .max_depth = c(3,4), .eta = c(0.1,0.2,0.25), .gamma = c(0.1,0.05), .colsample_bytree =c(0.6,0.8,1), .min_child_weight = c(3,4,5), .subsample = c(0.6,0.8,1))
+tune_xgb <- expand.grid(.nrounds = c(50), .max_depth = c(4), .eta = c(0.2), .gamma = c(0.1), .colsample_bytree =c(0.8), .min_child_weight = c(4), .subsample = c(0.8))
+model_xgb_new <- train( train_data[,predictors], train_data[,outcomeName], method = 'xgbTree', tuneGrid = tune_xgb, trControl=fitControl)
+pred_xgb_new <- predict(model_xgb_new, test_data, type = 'raw')
+RMSE(pred_xgb_new, test_data$stars)
+varImp(model_xgb_new)
+
+
+######  Stacking  #####
+
+pred_rf_new<-as.data.frame(pred_rf_new)
+pred_xgb_new<-as.data.frame(pred_xgb_new)
+pred_svm_new<-as.data.frame(pred_svm_new)
+C1<-cbind(pred_svm_new,pred_rf_new,pred_xgb_new,test_data$stars)
+colnames(C1)[4]<-"y"
+lm2<-lm(y~.,data=C1)
+lm2_pred<-predict(lm2,C1[-4])
+lm2_pred<-as.data.frame(lm2_pred)
+C1<-cbind(C1,lm2_pred)
+rmse(C1$y,C1$lm2_pred) 
+
+```
+

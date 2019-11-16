@@ -1,0 +1,241 @@
+---
+title: "DSC5103 Assignment 3"
+subtitle: 'Regularization Methods in Classification --- Solutions and Remarks'
+author: "Tong Wang"
+date: "Sep 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: yeti
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+
+### Introduction
+In this assignment, we will apply regularization methods (Ridge Regression, LASSO, and Elastic Net) to a classification problem, and compare them with traditional Logistic Regression.
+
+Before we start, it is necessary to read through the documentation of the functions **glmnet()** (specifically, the *family* option), **cv.glmnet()** (the *family* and *type.measure* options), and **predict.glmnet()** (the *type* option) in the **glmnet** package, and find out how to run generalized linear models with regularization.
+
+### Data Preparation
+First, let us get the data. We will use the **Heart** data from the textbook, available at http://www-bcf.usc.edu/~gareth/ISL/Heart.csv.
+```{r}
+heart <- read.csv(file="Heart.csv", row.names=1)
+summary(heart)
+```
+The task is to use the features to predict **AHD**, binary outcome related to some heart disease. 
+
+Some cleaning is necessary because there are NA's and also several categorical variables stored as numerical.
+```{r}
+# clean the NA's
+heart <- na.omit(heart)
+# convert to factors
+heart$Sex <- as.factor(heart$Sex)
+heart$Fbs <- as.factor(heart$Fbs)
+heart$RestECG <- as.factor(heart$RestECG)
+heart$ExAng <- as.factor(heart$ExAng)
+heart$Slope <- as.factor(heart$Slope)
+heart$Ca <- as.factor(heart$Ca)
+summary(heart)
+```
+
+Next, we will prepare the training and test dataset for later model comparison.
+```{r}
+# split training and test data 50/50
+N <- nrow(heart)
+N.train <- round(N/2)
+set.seed(456)
+train.index <- sample(1:N, N.train)
+data.train <- heart[train.index, ]
+data.test <- heart[- train.index,]
+```
+
+
+### Questions and Answers
+#### 1. [Logistic Regression as a benchmark] Find the optimal Logistic Regression model with **stepAIC()** using the training data, and use the model to predict using the test data.  (1 Mark)
+
+Answer: 
+
+
+```{r}
+library("MASS")
+lr.all <- glm(AHD ~ ., family=binomial(), data=data.train)
+lr.mod <- stepAIC(lr.all)
+summary(lr.mod)
+# prediction
+lr.pred <- predict(lr.mod, newdata=data.test, type="response")
+```
+
+
+#### 2. [Ridge Regression] Fit a Ridge Regression model on the training data, use cross-validtion to find the optimal $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer: 
+
+
+```{r message=FALSE, warning=FALSE}
+library("glmnetUtils")
+set.seed(12345)
+# cross-validation
+ridge.cv <- cv.glmnet(AHD ~ ., data=data.train, family="binomial", alpha=0, use.model.frame=TRUE)  # use deviance (default) as the criterion in CV
+plot(ridge.cv)
+
+# optimal lambda
+ridge.lam <- ridge.cv$lambda.min  # or ridge.cv$lambda.1se
+
+# plot optimal model for visualization
+plot(ridge.cv$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(ridge.lam), lty=2)
+
+# prediction on the test data
+ridge.pred <- predict(ridge.cv, newdata=data.test, s=ridge.lam, type="response")
+```
+
+
+**REMARKS**: 
+
+(1) Note that for 2-class logistic regression, we need to specify *family="binomial"* in cv.glmnet(). 
+
+(2) For the cross-validation to choose the best lambda, we need to specify the criterion for model selection. In binary classification, there are multple alternatives available (as opposed to MSE in regression problems). By default, we use deviance (corresponding to cross-validated MSE in regression). Or we can use misclassification error rate (by setting *type.measure="class"*) if you are comfortable with using 0.5 as the default cutoff when classifying data points. Also AUC is available (by setting *type.measure="auc"*) if you don't like 0.5 as the cutoff. 
+
+You can try these alternatives and check the differences. In general, deviance (as a function of $\lambda$) is smoother and more sensitive to changes in $\lambda$; whereas misclassification rate and AUC can be relatively jumpy and/or insensitive. So the former is easier for choosing the best $\lambda$.
+
+```{r}
+set.seed(12345)
+ridge.cv.err <- cv.glmnet(AHD ~ ., data=data.train, family="binomial", alpha=0, type.measure="class", use.model.frame=TRUE)  # use classification error as the criterion in CV
+plot(ridge.cv.err)
+```
+
+```{r}
+set.seed(12345)
+ridge.cv.auc <- cv.glmnet(AHD ~ ., data=data.train, family="binomial", alpha=0, type.measure="auc", use.model.frame=TRUE)  # use AUC as the criterion in CV
+plot(ridge.cv.auc)
+```
+
+
+(3) When predicting, we want to have the predicted probabilities, so use *type="response"*. 
+
+(4) When choosing the optimal lambda, we have two candidates: lambda.min that minimizes the cross validated misclassification error, or lambda.1se, the error at which is one standard error above the minimum error. The choice is subjective here: if we want higher prediction performance, we choose lambda.min; if we want higher regularization and hence more parsimonious model, we choose lambda.1se. 
+
+
+#### 3. [LASSO] Fit a LASSO model on the training data, use cross-validtion to find the optimal $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer:
+
+Just change $\alpha = 1$.
+
+```{r}
+set.seed(12345)
+# cross-validation
+lasso.cv <- cv.glmnet(AHD ~ ., data=data.train, family="binomial", alpha=1, use.model.frame=TRUE)
+plot(lasso.cv)
+
+# optimal lambda
+lasso.lam <- lasso.cv$lambda.min  # lasso.cv$lambda.1se
+
+# plot optimal model for visualization
+plot(lasso.cv$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(lasso.lam), lty=2)
+
+# prediction
+lasso.pred <- predict(lasso.cv, newdata=data.test, s=lasso.lam, type="response")
+```
+
+**REMARKS**: 
+
+(1) It is interesting to observe that the coefficient of predictor No. 19 (*Thalnormal*), the black line in the plot above, goes to zero when $\log \lambda$ is close to $-5$ and becomes non-zero again later when $\log \lambda$ increases to $-3$ and larger.
+
+#### 4. [Elastic Net] Fit an Elastic Net model on the training data, use cross-validtion to find the optimal $\alpha$ and $\lambda$, and use the optimal model to predict on the test data.  (1 Mark)
+
+Answer: 
+
+```{r}
+set.seed(12345)
+# cross-validation
+en.cva <- cva.glmnet(AHD ~ ., data=data.train, family="binomial", use.model.frame=TRUE)
+plot(en.cva)
+
+# choose optimal alpha manually
+minlossplot(en.cva, cv.type="min")
+
+# final model
+plot(en.cva$modlist[[10]])
+en.alpha <- en.cva$alpha[10]
+en.lam <- en.cva$modlist[[10]]$lambda.min
+
+# plot optimal lambda
+plot(en.cva$modlist[[10]]$glmnet.fit, xvar="lambda", label = TRUE)
+abline(v=log(en.lam), lty=2)
+
+# prediction
+en.pred <- predict(en.cva, newdata=data.test, alpha=en.alpha, s=en.lam, type="response")
+```
+
+
+#### 5. Compare the above-studied model predictions in terms of misclassification rate, ROC, and AUC.  (1 Mark)
+
+Answer: 
+
+Let's have a look at the misclassification rate.
+```{r message=FALSE}
+library("ROCR")
+prediction.lr <- prediction(lr.pred, data.test$AHD)
+prediction.ridge <- prediction(ridge.pred, data.test$AHD)
+prediction.lasso <- prediction(lasso.pred, data.test$AHD)
+prediction.en <- prediction(en.pred, data.test$AHD)
+
+# misclassification rate
+err.lr <- performance(prediction.lr, measure = "err")
+err.ridge <- performance(prediction.ridge, measure = "err")
+err.lasso <- performance(prediction.lasso, measure = "err")
+err.en <- performance(prediction.en, measure = "err")
+plot(err.lr, ylim=c(0.1, 0.5), lwd=2)
+plot(err.ridge, add=TRUE, col="blue")
+plot(err.lasso, add=TRUE, col="red")
+plot(err.en, add=TRUE, col="green")
+```
+
+It seems that ridge/LASSO/elastic net beat the best logistic regression model by around 5% less misclassification.
+
+
+Next, ROC plot and AUC.
+```{r}
+# ROC plot
+ROC.lr <- performance(prediction.lr, measure = "tpr", x.measure = "fpr")
+ROC.ridge <- performance(prediction.ridge, measure = "tpr", x.measure = "fpr")
+ROC.lasso <- performance(prediction.lasso, measure = "tpr", x.measure = "fpr")
+ROC.en <- performance(prediction.en, measure = "tpr", x.measure = "fpr")
+plot(ROC.lr, lwd=2)
+abline(a=0, b=1, lty=2) # diagonal line
+plot(ROC.ridge, add=TRUE, col="blue")
+plot(ROC.lasso, add=TRUE, col="red")
+plot(ROC.en, add=TRUE, col="green")
+
+# AUC
+as.numeric(performance(prediction.lr, "auc")@y.values)
+as.numeric(performance(prediction.ridge, "auc")@y.values)
+as.numeric(performance(prediction.lasso, "auc")@y.values)
+as.numeric(performance(prediction.en, "auc")@y.values)
+```
+So, relative to the best Logistic Regression model, all the regularization methods can further improve misclassification rate, ROC, and AUC. The difference among the regularization models is small and negligible.
+
+Finally, let's check the coefficients of the various models.
+```{r}
+## compare coefficients
+coef(lr.mod)
+coef(ridge.cv, s=ridge.lam)
+coef(lasso.cv, s=lasso.lam)
+coef(en.cva, alpha=en.alpha, s=en.lam)
+```
+
+**REMARKS:** 
+
+(1) It seems that ridge/LASSO/elastic net can set the coefficients of some dummy variables to zero but at the same time keep other dummy variables from the same categorical predictor. This was not possible in stepAIC(). For example, categorical predictor "ChestPain" takes categories like "nonanginal", "nontypical", and "typical", and in the LASSO solution, coefficients of "ChestPainnontypical" and "ChestPaintypical" are set to zero, whereas "ChestPainnonanginal" still has a positive one. Is the performance improvement coming from this?
+
+(2) The models do not always agree with each other on the effect of the predictors. For *Age*, *Sex*, *RestBP*, *MaxHR*, *ExAng*, and *Ca*, all four models give the same sign but still quite different magnitude. Predictor *Chol*, and *Oldpeak* have small but positive coefficients in ridge/LASSO/elastic net, but are not significant in logistic regression. The effect of *ChestPain*, *Fbs*, *RestECG*, *Slope*, and *Thal* are not very clear as the models give different coefficients.
+
+(3) Compared to logistic regression, the regularized models always give coefficients with smaller absolute value.

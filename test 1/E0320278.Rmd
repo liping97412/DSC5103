@@ -1,0 +1,279 @@
+---
+title: "DSC5103 Test 1"
+subtitle: three questions, 10 points in total
+date: "Oct 2018"
+output:
+  html_document:
+    highlight: tango
+    theme: spacelab
+  pdf_document:
+    highlight: zenburn
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 120)  # set output width
+```
+
+----
+
+## NOTE:
+This is an *individual* test. You can refer to whatever sources of information or materials, online or offline, but do not communicate with any other people. You can work on this file directly and fill in your answers/code below. Please submit the output RMD and HTML file (name your file like e0012345.rmd and e0012345.html if your NUS ID is e0012345) onto IVLE/Files/Student Submission/Test1 folder. 
+
+*Submission Deadline: Oct 6, 23:59:59*
+
+Also, fill your info below. (**This is critical as your NUS user id will be used in determining your random sample of the data!**)
+```{r}
+student.name <- "LI LIPING"  # put your name here
+student.id <- 0320278  # put only the numeric digits of your NUS user id here
+```
+
+
+----
+
+## James Harden 2014/15
+
+The file **JamesHarden2014.RData** is a dataset of shot records of an NBA (basketball) player James Harden in NBA regular season 2014-2015, obtained from the official NBA website http://stats.nba.com. 
+
+The data has been cleaned and prepared in an RData format. You can load the file by doing the following. After successfully loading the file, you should see a data frame called **data** with 1443 rows and 30 columns.
+```{r}
+load("JamesHarden2014.RData")  # load the data (make sure the .RData file is in your working directory!)
+dim(data)  # show data dimensions
+summary(data)  # summary
+```
+
+Every row is a shot attempt made by Harden. Here is a brief description of the columns.
+
+- "GAME_ID": unique id of the game;
+- "PERIOD": period of the game (NBA games have four periods, period==5 means extra time);
+- "SHOT_NUMBER": id of the shot in the game
+- "PLAYER_ID": Harden's player id in the NBA database
+- "PLAYER_NAME": player name in text
+- "TEAM_ID": id of the team Houston Rockets
+- "TEAM_NAME": name of the team in text
+- "MINUTES_REMAINING": the number of minutes remaining in the period when the shot is taken
+- "SECONDS_REMAINING": the number of seconds remaining in the period when the shot is taken         
+- "ACTION_TYPE": type of the shot action (categorical)
+- "SHOT_TYPE": type of the shot (categorical: 2-point or 3-point)
+- "SHOT_ZONE_BASIC": zone where the shot is taken (categorical)
+- "SHOT_ZONE_AREA": area where the shot is taken (categorical)
+- "SHOT_ZONE_RANGE": range of the shot (categorical)
+- "SHOT_DISTANCE": shot distance in feet
+- "LOC_X": X location of the player when taking the shot (in unknown unit)
+- "LOC_Y": Y location of the player when taking the shot (in unknown unit)
+- "MATCHUP": text description of the game
+- "LOCATION": location of the game (categorical: home or away)
+- "W": result of the game (categorical: win or loss)
+- "FINAL_MARGIN": final points difference between Rockets and the opponent
+- "GAME_CLOCK": time in game (in unknown unit)
+- "SHOT_CLOCK": number of seconds left to shoot (NBA's 24-second rule)
+- "DRIBBLES": the distance that Harden dribbled before the shot (in feet)
+- "TOUCH_TIME": the time that Harden touches the ball before the shot (in seconds)
+- "SHOT_RESULT": result of the shot (categorical: True or False)
+- "CLOSEST_DEFENDER": name of the closest defender
+- "CLOSEST_DEFENDER_PLAYER_ID": id of the closest defender
+- "CLOSE_DEF_DIST": distance of the closest defender (in feet)
+- "PTS": number of points gained by the shot
+
+
+### Q1. Analysis on **FINAL_MARGIN** (3 points)
+The first question to investigate is on the relationship between the FINAL_MARGIN and LOCATION. In other words, does playing a home or away game have an effect on the final margin of the game?
+
+#### a. Develop a regression model using **data** to answer the question above. (1 point)
+```{r}
+model1a <- lm(FINAL_MARGIN~LOCATION,data)
+summary(model1a)
+```
+-----
+***ANSWER of Q1a:***
+According to the result above,playing a away game has a significant negative effect to final margin of the game.
+-----
+
+#### b. Instead of using **data**, which is a dataset about shots, some may argue that we should run the analysis on the game level: regressing the FINAL_MARGIN on LOCATION for all the games. Below is an aggregated dataset about all the 80 games in **data.game**.
+```{r warning=F, message=F}
+library("dplyr")
+data.game <- data %>% group_by(GAME_ID) %>% select(c("GAME_ID", "FINAL_MARGIN", "LOCATION")) %>% distinct()
+summary(data.game)
+```
+#### Develop a regression model using **data.game** to answer the same question above. (1 point)
+```{r}
+model1b <- lm(FINAL_MARGIN~LOCATION,data.game)
+summary(model1b)
+```
+----
+***ANSWER of Q1b:***
+the coefficient of location away is insignicant, it proves that the location may has no effect to final margin of the game.
+----
+
+#### c. The two regression models seem to give different answers. Which one should be used? Briefly explain why. (1 point)
+
+----
+***ANSWER of Q1c:***
+model1b should be used. if we just use dataset about shots, if a game have many records of shots, this game will have higher weight in the whole model, so the coefficient of LOCATION is not trustworthy.
+----
+
+### Q2. Analysis on **SHOT_TYPE** (2 points)
+Let's classify whether a shot is a 3-point or 2-point shot (**SHOT_TYPE**) based on the player's location (**LOC_X** and **LOC_Y**). In case you do not know basketball: a shot will either be 2-point or 3-point depending on the location of the player when taking the shot. There is clearly defined boundary, roughly a half circle, and shots outside will be a 3-pointer. In this sense, we should be able to almost perfectly predict **SHOT_TYPE** by the X, Y locations.
+
+First plot the shot locations and color the points by shot type.
+```{r, warning=FALSE}
+library("ggplot2")
+p3 <- ggplot(data=data) + geom_point(aes(x=LOC_X, y=LOC_Y, color=factor(SHOT_TYPE))) + ylim(c(0,300)) + theme_bw()
+p3
+```
+
+#### a. Construct a Logistic Regression model to predict **SHOT_TYPE** using **LOC_X** and **LOC_Y** (because the boundary is a half circle, you will need 2nd-order polynomial for both X and Y). (1 point)
+
+Note: since the 2-pointer and 3-pointer are perfectly separable, you may see warnings such as *glm.fit: algorithm did not converge* and *glm.fit: fitted probabilities numerically 0 or 1 occurred*. Do not worry about them.
+
+----
+
+***ANSWER of Q2a:***
+```{r}
+model2a <- glm(SHOT_TYPE~ poly(LOC_X,2,raw = TRUE)+poly(LOC_Y,2,raw = TRUE),family = "binomial",data)
+summary(model2a)
+```
+----
+
+Next, plot the boundary of the fitted Logistic Regression model on top of the previous plot. Like what we have done before, we need to create a grid on the basketball court and predict the class of each point on the grid. The following code does the creation of grid dataframe.
+```{r}
+data.grid <- expand.grid(LOC_X=seq(-250, 250), LOC_Y=seq(0, 300))
+```
+
+#### b. Make predictions on the new data **data.grid** using the Logistric Regression model we built in part (a), and plot the boundary on the previous plot (**p3**). (1 point)
+
+----
+
+***ANSWER of Q2b:***
+```{r}
+#Make predictions on the new data
+pred_2a <- predict(model2a,data.grid,type = 'response')
+#plot the boundary on the previous plot
+p3+stat_contour(data=data.grid, aes(x=LOC_X, y=LOC_Y, z=pred_2a), breaks=c(0.5))
+```
+
+----
+
+### Q3. Analysis on **SHOT_RESULT** of 2-pointers (5 points)
+In the following, we will try to predict the outcome of 2-point shots. We need to subset the data that only consists of 2-point shots.
+```{r}
+## split 3pt and 2pt
+data2 <- subset(data, SHOT_TYPE=="2PT Field Goal")
+```
+In the rest of this question, we shall use **data2** as the dataset for analysis. Let's visualize **SHOT_RESULT** by X, Y locations.
+```{r}
+ggplot(data=data2) + geom_point(aes(x=LOC_X, y=LOC_Y, color=factor(SHOT_RESULT))) + theme_bw()
+```
+
+
+
+#### a. Build a model to investigate the effect of **SHOT_DISTANCE** and **CLOSE_DEF_DIST** on **SHOT_RESULT**, and briefly interpret the coefficients that you obtain. (1 point)
+
+----
+
+***ANSWER of Q3a:***
+```{r}
+model3a <- glm(formula=SHOT_RESULT ~ CLOSE_DEF_DIST + SHOT_DISTANCE,data=data2, family ="binomial")
+summary(model3a)
+```
+the coefficient of the two variables are all significant. The result shows that the farther the closest defender is, the SHOT_RESULT will more likely to be TRUE, the farther the SHOT_DISTANCE is, the SHOT_RESULT will more likely to be FALSE.
+
+----
+
+Finally, we will do some cross validation. But before we start, we need to tackle one problem. If you check the frequency of variable **ACTION_TYPE**,
+```{r}
+table(data2$ACTION_TYPE)
+```
+there are a lot of action types that only have several data points. They will become big trouble if we do cross validation. Let's get rid of them by constructing a new variable **ACTION_TYPE2**, which only keeps those action types with at least 50 data points. All other types will be combined into one category called "others." The following code will get the job done.
+```{r}
+levels.old <- levels(data2$ACTION_TYPE)
+levels.new <- ifelse(table(data2$ACTION_TYPE) > 50, levels.old, "others")
+data2$ACTION_TYPE2 <- data2$ACTION_TYPE
+levels(data2$ACTION_TYPE2) <- levels.new
+table(data2$ACTION_TYPE2)
+data2$ACTION_TYPE <- NULL
+```
+
+
+#### b. Build a maximum logistic regression model for predicting **SHOT_RESULT**. Among all the available variables, think about which variables should not be included in the model. Include all the reasonable ones. (1 point)
+
+**Note**: For the sake of the test, let's not consider polynomials, transformations, or interactions. Only choose the variables in their original forms.
+
+----
+
+***ANSWER of Q3b:***
+```{r}
+data3 <- subset(data2, select=c(-PLAYER_ID, -PLAYER_NAME, -TEAM_ID, -TEAM_NAME, -CLOSEST_DEFENDER,-SHOT_TYPE,-MATCHUP,-FINAL_MARGIN,-PTS,-GAME_ID,-MINUTES_REMAINING))
+model3b <- glm(SHOT_RESULT ~., data3, family="binomial")
+summary(model3b)
+```
+The maximum model can include all the variables, except the following:
+-"PLAYER_ID","PLAYER_NAME", "TEAM_ID","TEAM_NAME","SHOT_TYPE": these variables are only have one level.
+-"CLOSEST_DEFENDER": this variable can be identified by CLOSEST_DEFENDER_PLAYER_ID
+-"MATCHUP","GAME_ID","MINUTES_REMAINING": other variable can show this information
+-"FINAL_MARGIN": the shot result has nothing to do with the game's final margin
+-"PTS": points is derived from SHOT_RESULT in a game
+----
+#### c. Use the *stepAIC( )* function to do a **backward** selection of the maximum model we built in Q3b. Print a summary of the best model you have found at the end.  (1 point)
+----
+
+***ANSWER of Q3c:***
+```{r}
+library("MASS")
+model3c <- stepAIC(model3b, direction="backward")
+summary(model3c)
+```
+
+----
+
+#### d. Build a LASSO model based on the maximum model we built in Q3b (run cross-validtion to do proper shrinkage). Print a summary of the model you have found at the end.  (1 point)
+
+----
+
+***ANSWER of Q3d:***
+```{r}
+library("glmnetUtils")
+# CV for optimal lambda
+set.seed(456)
+model3d <- cv.glmnet(SHOT_RESULT ~., data3, family="binomial",alpha=1, use.model.frame=TRUE)
+# final model
+coef(model3d,model3d$lambda.min)
+```
+
+----
+ 
+#### e. Compare ROC curve and AUC of the three models obtained in Q3b, Q3c, and Q3d using the dataset **data2**, and briefly interpret the comparison. (1 point)
+
+
+----
+
+***ANSWER of Q3e:***
+```{r}
+library(dplyr)
+pred3b <- predict(model3b,newdata=data2,type="response")
+pred3c <- predict(model3c,newdata=data2,type="response")
+pred3d <- predict(model3d, s=model3d$lambda.min, newdata=data2,type="response")
+library(ROCR)
+pred.3b <- prediction(pred3b,data3$SHOT_RESULT)
+pred.3c <- prediction(pred3c,data3$SHOT_RESULT)
+pred.3d <- prediction(pred3d,data3$SHOT_RESULT)
+#roc
+roc_3b <- performance(pred.3b,"tpr","fpr")
+roc_3c <- performance(pred.3c,"tpr","fpr")
+roc_3d <- performance(pred.3d,"tpr","fpr")
+#plot roc
+plot(roc_3b,col="black")
+plot(roc_3c,col="green",add=TRUE)
+plot(roc_3d,col="red",add=TRUE)
+legend(x=0.8,y=0.3,legend = c("roc_3b","roc_3c","roc_3d"),lty = c(1,1,1),lwd = c(1,1,1),col = c("black","green","red"),cex=0.8)
+#auc
+performance(pred.3b,"auc")@y.values[[1]]
+performance(pred.3c,"auc")@y.values[[1]]
+performance(pred.3d,"auc")@y.values[[1]]
+```
+
+----
+the result shows that model 3B has the largest auc value.It may seem confusion as the maximum model get the largest auc, but it make sense in this case. It mainly because that we use train data to do the predict. As the stepAIC and lasso are all used to avoid overfitting, it is normal that they perform worse when to fit the train data
+***[THE END]***

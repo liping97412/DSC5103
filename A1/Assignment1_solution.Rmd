@@ -1,0 +1,243 @@
+---
+title: "DSC5103 Assignment 1 --- Solutions and Remarks"
+subtitle: "Simulation and K-Nearest Neighbor Algorithm"
+author: "Tong Wang"
+date: "Aug 2018"
+output:
+  html_document:
+    theme: yeti
+    highlight: tango
+  pdf_document:
+    highlight: zenburn
+---
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+
+## Part I: Simulation
+In this exercise, we will use simulation to illustrate the variability of statistics calculated from random samples. Suppose there is a **normal** population of size **10000**, with mean **100** and standard deviation **15**. Now we draw a sample from the population, of size **100** without replacement, we can calculate sample statistics such as mean and variance. If we further repeat the sampling process many times, say **200**, we will have 200 sets of similar sample statistics. Let's examine these sample statistics.
+
+The necessary parameters are already set up as below.
+```{r}
+pop.size <- 10000
+pop.mean <- 100
+pop.sd <- 15
+
+num.of.samples <- 200
+sample.size <- 100
+```
+
+### Questions and Answers
+#### 1. Use random seed **1234** to conduct the simulation (i.e., simulate the population as specified, draw 200 samples, and calculate sample mean and variance for each sample, respectively), evaluate the mean and standard deviation of the sample statistics, and compare with their theoretical values. Draw histograms of the sample statistics. (1 Mark)
+
+Answer: 
+
+```{r}
+# set random seed
+set.seed(1234)
+
+# simulate the population
+pop <- rnorm(n=pop.size, mean=pop.mean, sd=pop.sd)
+
+# vectors for keeping the sample statistics
+sample.mean <- numeric(length=num.of.samples)
+sample.var <- numeric(length=num.of.samples)
+
+# draw 200 samples and calculate sample mean and sd
+for (i in 1:num.of.samples) {
+    samp <- sample(pop, size=sample.size)
+    sample.mean[i] <- mean(samp)
+    sample.var[i] <- var(samp)
+}
+```
+
+For the sample means we have obtained, the mean is **`r mean(sample.mean)`** and standard deviation is **`r sd(sample.mean)`**. Their corresponding theoretical predictions are **`r pop.mean`** and **`r pop.sd / sqrt(sample.size)`**. 
+
+**REMARK**: Recall that, according to the Central Limit Theorem, the sample mean 
+$$\bar{X} \sim  \text{N}\left(\mu, \frac{\sigma^2}{n} \right).$$
+
+The histogram is as follows.
+```{r}
+hist(sample.mean, probability=TRUE)
+abline(v=pop.mean, lty=2, lwd=2)
+# overlay the theoretical distribution (not required in the assignment)
+curve(dnorm(x, mean=pop.mean, sd=pop.sd/sqrt(sample.size)), from=95, to=105, col="blue", add=TRUE)
+```
+
+
+
+Similarly, for the sample standard deviation we have obtained, the mean is **`r mean(sample.var)`** and standard deviation is **`r sd(sample.var)`**. Their corresponding theoretical predictions are **`r pop.sd^2`** and **`r sqrt(2 * pop.sd^4 / (sample.size - 1))`**. 
+
+**REMARK**: Recall that theoretically, the sample variance $S^2$ satisfies
+$$\text{E}[S^2] = \sigma^2, ~~ \text{Var}[S^2] = \frac{2 \sigma^4}{n - 1}, ~~\text{and } \frac{(n-1)S^2}{\sigma^2} \sim \chi^2_{n-1}.$$
+
+
+The histogram is as follows.
+```{r}
+hist(sample.var, probability=TRUE)
+abline(v=pop.sd^2, lty=2, lwd=2)
+# overlay the theoretical distribution (not required in the assignment)
+hist(sample.var * (sample.size - 1) / (pop.sd^2), probability = TRUE)
+curve(dchisq(x, df=sample.size-1), from=60, to=140, col="blue", add=TRUE)
+```
+
+
+**REMARK**: The key point of this exercise is to note that sample statistics (sample mean, sample standard deviation, etc.) are random variables themselves simply because the sample from which the statistics are calculated is randomly drawn from the population. Everytime we obtain a new sample, we should expect to see a new set of sample statistics. If we repeat the sampling process many times, we should see many different sets of sample statistics, and we can calculate their mean / sd and even plot their distributions (histograms).
+
+On top of that, even though the sample statistics are random, they are still governed by the population and exhibit some systematic behavior. E.g., according to the Central Limit Theorem, the sample mean $\bar{X}$ is normally distributed with mean $100$ and sd $1.5$. By our simulation exercise above, we verify that the observed behavior is consistent with the theory.
+
+
+## Part II: K-Nearest Neighbor Algorithm
+### Introduction
+In this assignment, we are going to experiment the K-Nearest Neighbor (KNN) algorithm on a higher-dimensional dataset and experience the deterioration of prediction performance as the dimensionality grows.
+
+The experiment is built on top of the 3rd-order polynomial model discussed in class (knn_demo.R), i.e.,
+$$y = \beta_0 + \beta_1 * x + \beta_2 * x^2 + \beta_3 * x^3 + \epsilon, ~~ \epsilon \sim \text{N}(0, \sigma^2)$$
+and we are going to introduce an extra 20-dimensional predictor $z$, which does NOT actually play a role in generating $y$. Yet, when in estimation, we do not know the fact and will use both $x$ and $z$ as predictors in the KNN algorithm.
+
+### Generation of the high-dimensional dataset
+We first simulate the 3rd-order polynomial datasets as we did in knn_demo.R. 
+
+```{r}
+library("ggplot2")
+
+## population parameters
+beta0 <- 1
+beta1 <- -2
+beta2 <- 6
+beta3 <- -1
+sigma <- 2
+
+set.seed(7890)
+
+## training data
+x <- runif(n=100, min=0, max=5) 
+f_x <- beta0 + beta1 * x + beta2 * x^2 + beta3 * x^3
+epsilon <- rnorm(n=length(x), mean=0, sd=sigma)
+y <- f_x + epsilon
+
+## test data
+x.test <- runif(n=50, min=0, max=5)
+f_x.test <- beta0 + beta1 * x.test + beta2 * x.test^2 + beta3 * x.test^3
+epsilon.test <- rnorm(n=length(x.test), mean=0, sd=sigma)
+y.test <- f_x.test + epsilon.test
+```
+The resulted training and test dataset have `r length(y)` and `r length(y.test)` data points, respectively.
+
+Next, we need to generate $z$, the 20-dimensional predictors, of the same sizes. Each $z$ is a 20-dimensional multivariate normal random variable, with mean being $(0, 0, \ldots, 0)$ and identity covariance matrix (so that the 20 elements are independent standard normal random variables). The resulted $z$ is a 100*20 matrix, with each row being a data point with 20 dimensions.
+```{r}
+library("mvtnorm")  # package for multivariate normal distribution, INSTALL IT BEFORE RUNNING
+z <- rmvnorm(n=length(x), mean=rep(0, 20))  # covariance matrix is identity matrix by default, no need to specify here
+z.test <- rmvnorm(n=length(x.test), mean=rep(0, 20))
+head(z)
+```
+
+Later, we will use $(x, z)$ to predict $y$. Let's first combine $x$ and $z$ into matrices, as required by function knn.reg().
+```{r}
+train.x <- cbind(x, z)
+test.x <- cbind(x.test, z.test)
+head(train.x)
+```
+
+### Questions and Answers
+
+#### 1.	For a fixed $k=15$, fit a KNN model to predict $y$ with $(x, z)$, and measure the training and test MSE. (1 Mark)
+
+Answer: 
+
+```{r}
+library("FNN")
+
+model15.train <- knn.reg(train=train.x, test=train.x, y=y, k=15)
+# Training MSE
+mean((y - model15.train$pred)^2)
+
+model15.test <- knn.reg(train=train.x, test=test.x, y=y, k=15)
+# Test MSE
+mean((y.test - model15.test$pred)^2)
+```
+
+
+#### 2.	With the same data, plot the training and test MSE of the KNN model against $k$, and find the optimal $k$ and the corresponding test MSE. (1 Mark)
+
+Answer: 
+
+```{r}
+ks <- 1:30
+mse.train <- numeric(length=length(ks))
+mse.test  <- numeric(length=length(ks))
+names(mse.train) <- names(mse.test) <- ks
+for (i in seq(along=ks)) {
+    model.train <- knn.reg(train.x, train.x, y, k=ks[i])
+    model.test  <- knn.reg(train.x, test.x, y, k=ks[i])
+    mse.train[i] <- mean((y - model.train$pred)^2)
+    mse.test[i] <- mean((y.test - model.test$pred)^2)
+}
+
+# plot MSE on Training and Test
+ggplot() + geom_line(aes(x=ks, y=mse.train), color="red") + geom_point(aes(x=ks, y=mse.train)) + geom_line(aes(x=ks, y=mse.test), color="blue") + geom_point(aes(x=ks, y=mse.test)) + scale_x_reverse(lim=c(30, 1)) + geom_hline(yintercept=sigma^2, linetype=2) + theme_bw()
+
+# optimal k
+which.min(mse.test)
+# optimal MSE
+min(mse.test)
+```
+
+#### 3.	Based on the analysis above, compare the above model with $(x, z)$ being the predictors and the previous model with $x$ only (as in knn_demo.R). Briefly explain why. (1 Mark)
+
+Answer: Here the test MSE is `r min(mse.test)`, which is significantly higher than in the previous model without $z$, where the test MSE was around $4$. This is purely driven by the inclusion of predictor $z$. The reason is two-fold: (1) $z$ is actually not affecting $y$, so is irrelevant in prediction. KNN does not have a variable selection process built in and cannot ignore those. (2) Inclusion of irrelevant variables increases the dimensionality. KNN performance deteriorates quickly when the dimensionality grows and the data points become sparse and far away from each other. 
+
+
+
+#### 4.	We have seen that the test MSE is significantly worse than what we had without using predictor $z$ (in knn_demo.R). To better understand the impact of including irrelevant predictors in the KNN algorithm, let's try to include the 20 dimensions of $z$ one by one. So in each round $j$, we construct the predictors by combining $x$ and the first $j$ columns of $z$, then repeat the analysis in Question 2 and find the optimal $k$ and test MSE. At the end, plot the optimal MSE agaist $j$, and interpret the result.  (1 Mark)
+
+Answer: 
+
+```{r}
+k.opt <- numeric(length=20)
+mse.opt <- numeric(length=20)
+for (j in 1:20) {
+    train.x <- cbind(x, z[, 1:j])
+    test.x <-  cbind(x.test, z.test[, 1:j])
+
+    # enumerate many many k values and measure MSE
+    ks <- 1:30
+    mse.train <- numeric(length=length(ks))
+    mse.test  <- numeric(length=length(ks))
+    names(mse.train) <- names(mse.test) <- ks
+    for (i in seq(along=ks)) {
+        model.train <- knn.reg(train.x, train.x, y, k=ks[i])
+        model.test  <- knn.reg(train.x, test.x, y, k=ks[i])
+        mse.train[i] <- mean((y - model.train$pred)^2)
+        mse.test[i] <- mean((y.test - model.test$pred)^2)
+    }
+
+    # optimal k
+    k.opt[j] <- which.min(mse.test)
+    mse.opt[j] <- min(mse.test)
+}
+
+# plot the MSE as the dimensionality of z grows from 1 to 20
+ggplot() + geom_line(aes(x=1:20, y=mse.opt), color="blue") + geom_point(aes(x=1:20, y=mse.opt))  + geom_hline(yintercept=sigma^2, linetype=2) + scale_y_continuous(lim=c(0, 30)) + theme_bw()
+
+# plot the optimal K as the dimensionality of z grows from 1 to 20
+ggplot() + geom_line(aes(x=1:20, y=k.opt), color="blue") + geom_point(aes(x=1:20, y=k.opt)) + scale_y_continuous(lim=c(0, 15)) + theme_bw()
+```
+
+This once again suggests that including irrelevant predictors will not improve the predictive power, instead, it increases the dimensionality and undermines the performance.
+
+**REMARK**: As we have seen, the deterioration of prediciton performance is driven jointly by two effects: (1) inclusion of irrelevant predictors and (2) increase in dimensionality. Solely from this experiment, it is hard to further differentiate which effects contributed more. If you are curious, you may repeat the above experiment with a little tweak: including $z$ into the data generating model of $Y$, e.g.,
+$$y = \beta_0 + \beta_1 * x + \beta_2 * x^2 + \beta_3 * x^3 + z + \epsilon, ~~ \epsilon \sim \text{N}(0, \sigma^2).$$
+This way, $z$ is no longer irrelevant and we can rule out the first effect. You will see the performance still deteriorates as more $z$ is included, which is purely driven by the dimensionality. 
+
+
+## Session Info
+
+```{r session-info}
+print(sessionInfo(), locale=FALSE)
+```
